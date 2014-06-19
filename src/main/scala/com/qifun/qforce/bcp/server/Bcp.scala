@@ -14,13 +14,24 @@ import java.io.ByteArrayOutputStream
 import scala.collection.mutable.ArrayBuffer
 import java.io.ObjectInputStream
 import java.io.DataInputStream
+import java.io.IOException
 
+/**
+ * BCP协议相关的数据结构和常量
+ */
 object Bcp {
+
+  final val MaxConnectionsPerSession = 3
+
+  /**
+   * 当一个拉取数据的TCP连接空闲多长时间以后，服务端发一个心跳包
+   */
+  final val ServerHeartBeatDelay: FiniteDuration = 3.seconds
 
   /**
    * 服务器多长时间收不到心跳包就杀掉TCP连接。
    */
-  final def ServerReadingTimeout = 5.seconds
+  final val ServerReadingTimeout = 5.seconds
 
   /**
    * 服务器多长时间发不出数据就杀掉TCP连接。
@@ -28,142 +39,80 @@ object Bcp {
    * 发数据超时只可能因为TCP缓冲区满，
    * 只有发送超大数据包时，客户端很慢，才会发生这种情况，可能性微乎其微。
    */
-  final def ServerWritingTimeout = 1.seconds
+  final val ServerWritingTimeout = 1.seconds
+
+  /**
+   * Session ID由多少字节构成
+   */
+  final val NumBytesSessionId = 16
 
   sealed trait ServerToClient
 
   sealed trait ClientToServer
 
   /**
-   * @returns Number of bytes read
+   * 需要回复[[Acknowledge]]的协议
    */
-  @tailrec
-  private def readByteBuffers(output: Growable[ByteBuffer], inputStream: InputStream, count: Int = 0): Int = {
-    // 多读一个字节，以便检测是否会EOF
-    val array = Array.ofDim[Byte](inputStream.available + 1)
-    val numBytesRead = IOUtils.read(inputStream, array)
-    if (numBytesRead == 0) {
-      count
-      // EOF
-    } else if (numBytesRead == array.length) {
-      output += ByteBuffer.wrap(array)
-      readByteBuffers(output, inputStream, numBytesRead + count)
-    } else {
-      ByteBuffer.wrap(array, 0, numBytesRead)
-      numBytesRead + count
-    }
-  }
+  sealed trait AcknowledgeRequired
 
-  final case class Data(packId: Int, inputStream: InputStream) extends ServerToClient with ClientToServer
+  final case class ConnectionHead(sessionId: Array[Byte], connectionId: Int)
+
+  final case class Data(buffer: Seq[ByteBuffer])
+    extends ServerToClient with ClientToServer with AcknowledgeRequired
   object Data {
     final val HeadByte: Byte = 0
   }
 
-  case object EndData extends ServerToClient with ClientToServer {
+  case object Acknowledge extends ServerToClient with ClientToServer {
     final val HeadByte: Byte = 1
   }
 
-  case object EndDataAndWait extends ServerToClient with ClientToServer {
+  case class RetransmissionData(connectionId: Int, packId: Int, buffer: Seq[ByteBuffer])
+    extends ServerToClient with ClientToServer with AcknowledgeRequired
+  object RetransmissionData {
     final val HeadByte: Byte = 2
   }
 
   case object Renew extends ServerToClient {
     final val HeadByte: Byte = 3
   }
-
-  case object RenewRequest extends ClientToServer {
+  object RenewRequest {
     final val HeadByte: Byte = 4
-  }
-
-  private def readVarint(socket: SocketInputStream): Future[Int] = {
-    def readRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {
-      (socket.available_=(1)).await
-      socket.read() match {
-        case -1 => throw new EOFException
-        case b => {
-          if (i < 32) {
-            if (b >= 0x80) {
-              readRestBytes(
-                result | ((b & 0x7f) << i),
-                i + 7).await
-            } else {
-              result | (b << i)
-            }
-          } else {
-            throw BcpException.VarintTooBig
-          }
-
-        }
-      }
-    }
-    readRestBytes(0, 0)
-  }
-
-  @tailrec
-  private def writeVarint(buffer: ByteBuffer, value: Int) {
-    if ((value & 0xFFFFFF80) == 0) {
-      buffer.put(value.toByte)
-      return ;
-    } else {
-      buffer.put(((value & 0x7F) | 0x80).toByte)
-      writeVarint(buffer, value >>> 7)
-    }
-  }
-
-  final def enqueue(stream: SocketWritingQueue, pack: ServerToClient) {
-    pack match {
-      case Renew => stream.enqueue(ByteBuffer.wrap(Array[Byte](Renew.HeadByte)))
-      case EndDataAndWait => stream.enqueue(ByteBuffer.wrap(Array[Byte](EndDataAndWait.HeadByte)))
-      case EndData => stream.enqueue(ByteBuffer.wrap(Array[Byte](EndData.HeadByte)))
-      case Data(packId, data) => {
-        val headBuffer = ByteBuffer.allocate(10)
-        headBuffer.put(Data.HeadByte)
-        headBuffer.putInt(packId)
-        val bufferBuilder = ArrayBuffer[ByteBuffer](headBuffer)
-        val length = readByteBuffers(bufferBuilder, data)
-        writeVarint(headBuffer, length)
-        headBuffer.flip()
-        stream.enqueue(bufferBuilder: _*)
-      }
-    }
-  }
-
-  private def readBigEndianInt(inputStream: InputStream) = {
-    val byte1 = inputStream.read()
-    val byte2 = inputStream.read()
-    val byte3 = inputStream.read()
-    val byte4 = inputStream.read()
-    if ((byte1 | byte2 | byte3 | byte4) < 0) {
-      throw BcpException.Eof
-    }
-    ((byte1 << 24) + (byte2 << 16) + (byte3 << 8) + (byte4 << 0))
-  }
-
-  final def receive(stream: SocketInputStream) = Future[ClientToServer] {
-    stream.available_=(1).await
-    stream.read() match {
-      case Data.HeadByte => {
-        val packId = readBigEndianInt(stream)
-        val length = readVarint(stream).await
-        stream.available_=(length).await
-        val data = Data(packId, stream.duplicate)
-        stream.skip(stream.available)
-        data
-      }
-      case EndDataAndWait.HeadByte => EndDataAndWait
-      case EndData.HeadByte => EndData
-      case RenewRequest.HeadByte => RenewRequest
-      case -1 => throw BcpException.Eof
-      case _ => throw BcpException.UnknownHeadByte
-    }
 
   }
+  final case class RenewRequest(newSessionId: Array[Byte]) extends ClientToServer
 
-  final def readSessionId(stream: SocketInputStream) = Future[Array[Byte]] {
-    stream.available_=(16).await
-    var sessionId = Array.ofDim[Byte](16)
-    stream.read(sessionId)
-    sessionId
+  /**
+   * 结束一个TCP连接，相当于TCP FIN。
+   *
+   * @note 不能直接用TCP FIN是因为一方发送Finish后还可能继续发Acknowledge。
+   * 而在调用shutdown发送TCP FIN后，就没办法再发送Acknowledge了。
+   */
+  case object Finish
+    extends ServerToClient with ClientToServer with AcknowledgeRequired {
+    final val HeadByte: Byte = 5
+  }
+
+  case class RetransmissionFinish(connectionId: Int, packId: Int)
+    extends ServerToClient with ClientToServer with AcknowledgeRequired
+  object RetransmissionFinish {
+    final val HeadByte: Byte = 6
+  }
+
+  /**
+   * 发送[[ShutDownInput]]的一端不再接收整个[[BcpServer.Session]]的任何新数据。
+   */
+  case object ShutDownInput
+    extends ServerToClient with ClientToServer with AcknowledgeRequired {
+    final val HeadByte: Byte = 7
+  }
+
+  /**
+   * 发送[[ShutDownInput]]的一端不再向[[BcpServer.Session]]发送任何新数据。
+   */
+  case object ShutDownOutput
+    extends ServerToClient with ClientToServer with AcknowledgeRequired {
+    final val HeadByte: Byte = 8
   }
 
 }
