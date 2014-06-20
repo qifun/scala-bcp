@@ -48,10 +48,81 @@ private[server] object BcpIo {
     }
   }
 
-  final def enqueueAcknowledge(stream: SocketWritingQueue) {
+  final def enqueue(stream: SocketWritingQueue, pack: Acknowledge.type) {
     stream.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
   }
 
+  final def enqueue(stream: SocketWritingQueue, pack: Renew.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: Finish.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](Finish.HeadByte)))
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: RetransmissionFinish) {
+    val headBuffer = ByteBuffer.allocate(20)
+    headBuffer.put(RetransmissionFinish.HeadByte)
+    writeVarint(headBuffer, pack.connectionId)
+    writeVarint(headBuffer, pack.packId)
+    headBuffer.flip()
+    stream.enqueue(headBuffer)
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: RetransmissionData) {
+    val headBuffer = ByteBuffer.allocate(20)
+    headBuffer.put(RetransmissionData.HeadByte)
+    writeVarint(headBuffer, pack.connectionId)
+    writeVarint(headBuffer, pack.packId)
+    writeVarint(headBuffer, pack.buffer.length)
+    headBuffer.flip()
+    stream.enqueue((headBuffer +: pack.buffer.view): _*)
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: Data) {
+    val headBuffer = ByteBuffer.allocate(20)
+    headBuffer.put(Data.HeadByte)
+    writeVarint(headBuffer, pack.buffer.length)
+    headBuffer.flip()
+    stream.enqueue((headBuffer +: pack.buffer.view): _*)
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: ShutDownInput.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDownInput.HeadByte)))
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: ShutDownOutput.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDownOutput.HeadByte)))
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: ServerToClient) {
+    pack match {
+      case pack @ Acknowledge => {
+        enqueue(stream, pack)
+      }
+      case pack: Data => {
+        enqueue(stream, pack)
+      }
+      case pack @ Finish => {
+        enqueue(stream, pack)
+      }
+      case pack: RetransmissionData => {
+        enqueue(stream, pack)
+      }
+      case pack: RetransmissionFinish => {
+        enqueue(stream, pack)
+      }
+      case pack @ ShutDownOutput => {
+        enqueue(stream, pack)
+      }
+      case pack @ ShutDownInput => {
+        enqueue(stream, pack)
+      }
+      case pack @ Renew => {
+        enqueue(stream, pack)
+      }
+    }
+  }
   //  final def enqueueEndData(stream: SocketWritingQueue) {
   //    stream.enqueue(ByteBuffer.wrap(Array[Byte](EndData.HeadByte)))
   //  }

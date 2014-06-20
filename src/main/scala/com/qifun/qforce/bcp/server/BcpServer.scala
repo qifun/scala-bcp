@@ -28,6 +28,7 @@ import scala.collection.immutable.Queue
 object BcpServer {
 
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
+
   //  class ShouldCancelException extends Exception
   //
 
@@ -156,7 +157,7 @@ object BcpServer {
     /**
      * 已经发送但还没有收到对应的[[Acknowledge]]的数据
      */
-    private[BcpServer] val unconfirmedData = Ref(Queue.empty[AcknowledgeRequired])
+    private[BcpServer] val unconfirmedPack = Ref(Queue.empty[AcknowledgeRequired with ServerToClient])
 
   }
 
@@ -180,6 +181,10 @@ object BcpServer {
     final case class ShutDownOutputWaiting(numAcknowledgeToReceive: Int) extends ShutDownOutputState
   }
 
+  private final case class SendingConnectionQueue(
+    val openConnections: Set[Connection] = Set.empty[Connection],
+    private val availableConnections: Set[Connection] = Set.empty[Connection])
+
   trait Session {
 
     private[BcpServer] final val lastConnectionId = Ref[Int](0)
@@ -188,21 +193,29 @@ object BcpServer {
      * 当前连接，包括尚未关闭的连接和已经关闭但数据尚未全部确认的连接。
      *
      * @note 只有[[Connection.isFinishReceived]]和[[Connection.isFinishSent]]都为`true`，
-     * 且[[Connection.unconfirmedData]]为空，
+     * 且[[Connection.unconfirmedPack]]为空，
      * 才会把[[Connection]]从[[connections]]中移除。
      */
     private[BcpServer] final val connections = TMap.empty[Int, Connection]
 
-    private[BcpServer] final val shutDownInputState: Ref[ShutDownInputState] = Ref(ShutDownInputState.NotShutDownInput)
+    private[BcpServer] final val sendingQueue: Ref[Either[Queue[Bcp.AcknowledgeRequired], SendingConnectionQueue]] = {
+      Ref(Right(SendingConnectionQueue()))
+    }
 
-    private[BcpServer] final val shutDownOutputState: Ref[ShutDownOutputState] = Ref(ShutDownOutputState.NotShutDownOutput)
+    private[BcpServer] final val shutDownInputState: Ref[ShutDownInputState] = {
+      Ref(ShutDownInputState.NotShutDownInput)
+    }
+
+    private[BcpServer] final val shutDownOutputState: Ref[ShutDownOutputState] = {
+      Ref(ShutDownOutputState.NotShutDownOutput)
+    }
 
   }
 }
 
 /**
  * 处理BCP协议的服务器。
- * 
+ *
  * BCP协议的特性：
  *
  * <ol>
@@ -220,20 +233,23 @@ abstract class BcpServer {
 
   protected def executor: ScheduledExecutorService
 
-  final def send(session: Session, pack: ByteBuffer*) {
+  final def send(session: Session, buffer: ByteBuffer*) {
+    atomic { implicit txn =>
+      enqueue(session, Bcp.Data(buffer))
+    }
     ??? // TODO
   }
 
   /**
    * 创建[[Session]]实例的工厂方法。
-   * 
+   *
    * @note 由于使用了软件事务内存，[[newSession]]可能会被随机的反复调用。
    */
   protected def newSession: Session
 
   /**
    * 每一次触发表示与客户端建立了一次新的会话。
-   * 
+   *
    * 建立一次会话期间，本[[BcpServer]]可能会调用多次[[newSession]]，但一定只调用一次[[open]]。
    */
   protected def open(session: Session)
@@ -284,24 +300,62 @@ abstract class BcpServer {
   //    session.sendingStreams.put(stream, TimerRunnable.timer)
   //  }
 
+  /**
+   * 从所有可用连接中轮流发送
+   */
+  private def enqueue(session: Session, newPack: Bcp.ServerToClient with Bcp.AcknowledgeRequired)(implicit txn: InTxn) {
+    session.sendingQueue.transform {
+      case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
+        if (openConnections.isEmpty) {
+          Left(Queue(newPack))
+        } else {
+          def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) = {
+            val (first, rest) = availableConnections.splitAt(1)
+            BcpIo.enqueue(first.head.stream(), newPack)
+            Right(SendingConnectionQueue(openConnections, rest))
+          }
+          if (availableConnections.isEmpty) {
+            consume(openConnections, openConnections)
+          } else {
+            consume(openConnections, availableConnections)
+          }
+        }
+      }
+      case Left(packQueue) => {
+        Left(packQueue.enqueue(newPack))
+      }
+    }
+  }
+
   private def checkConnectionFinish(
-    session: Session, connectionId: Int, connection: Connection)(
+    sessionId: Array[Byte], session: Session, connectionId: Int, connection: Connection)(
       implicit txn: InTxn) {
     val isConnectionFinish =
       connection.isFinishSent() &&
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
-        connection.unconfirmedData().isEmpty
+        connection.unconfirmedPack().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
       session.connections.remove(connectionId)
       val connectionStream = connection.stream()
       connection.stream() = null
       Txn.afterCommit(_ => connectionStream.interrupt())
+      if (session.connections.isEmpty &&
+        session.shutDownOutputState() == ShutDownOutputState.ShutDownOutputConfirmed &&
+        session.shutDownInputState() == ShutDownInputState.ShutDownInputConfirmed) {
+        val removedSessionOption = sessions.remove(sessionId)
+        assert(removedSessionOption == Some(session))
+      }
     }
     // TODO: 支持关闭整个Session
   }
 
   private def dataReceived(
-    session: Session, connectionId: Int, connection: Connection, packId: Int, buffer: Seq[ByteBuffer])(
+    sessionId: Array[Byte],
+    session: Session,
+    connectionId: Int,
+    connection: Connection,
+    packId: Int,
+    buffer: Seq[ByteBuffer])(
       implicit txn: InTxn) {
     val idSet = connection.receiveIdSet()
     if (idSet.contains(packId)) {
@@ -309,7 +363,7 @@ abstract class BcpServer {
     } else {
       Txn.afterCommit(_ => received(session, buffer: _*))
       connection.receiveIdSet() = idSet + packId
-      checkConnectionFinish(session, connectionId, connection)
+      checkConnectionFinish(sessionId, session, connectionId, connection)
     }
   }
 
@@ -317,12 +371,17 @@ abstract class BcpServer {
     ??? // TODO: 如果两端都已经ShutDown，则进入Finish所有TCP连接的流程
   }
 
-  private def finishReceived(session: Session, connectionId: Int, connection: Connection, packId: Int)(implicit txn: InTxn) {
+  private def finishReceived(
+    sessionId: Array[Byte],
+    session: Session,
+    connectionId: Int,
+    connection: Connection,
+    packId: Int)(implicit txn: InTxn) {
     connection.numDataReceived() = packId + 1
     connection.finishIdReceived() match {
       case None => {
         connection.finishIdReceived() = Some(packId)
-        checkConnectionFinish(session, connectionId, connection)
+        checkConnectionFinish(sessionId, session, connectionId, connection)
         // 无需通知用户，结束的只是一个连接，而不是整个Session
       }
       case Some(originalPackId) => {
@@ -331,31 +390,54 @@ abstract class BcpServer {
     }
   }
 
-  private def startReceive(session: Session, connectionId: Int, connection: Connection, stream: Stream) {
+  private def startReceive(
+    sessionId: Array[Byte],
+    session: Session,
+    connectionId: Int,
+    connection: Connection,
+    stream: Stream) {
     implicit def catcher: Catcher[Unit] = {
       case e: Exception => {
         stream.interrupt()
-        // TODO: 把`unconfirmedData`用别的连接重发
+        atomic { implicit txn =>
+          connection.unconfirmedPack().foldLeft(connection.numAcknowledgeReceivedForData()) {
+            case (packId, Bcp.Data(buffer)) => {
+              enqueue(session, Bcp.RetransmissionData(connectionId, packId, buffer))
+              packId + 1
+            }
+            case (packId, Bcp.Finish) => {
+              Bcp.RetransmissionFinish(connectionId, packId)
+              enqueue(session, Bcp.RetransmissionFinish(connectionId, packId))
+              packId + 1
+            }
+            case (nextPackId, pack) => {
+              enqueue(session, pack)
+              nextPackId
+            }
+          }
+          connection.unconfirmedPack() = Queue.empty
+          checkConnectionFinish(sessionId, session, connectionId, connection)
+        }
       }
     }
     for (clientToServer <- BcpIo.receive(stream)) {
       clientToServer match {
         case Bcp.Data(buffer) => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             val packId = connection.numDataReceived()
             connection.numDataReceived() = packId + 1
-            dataReceived(session, connectionId, connection, packId, buffer)
+            dataReceived(sessionId, session, connectionId, connection, packId, buffer)
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
         case Bcp.RetransmissionData(dataConnectionId, packId, data) => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             session.connections.get(dataConnectionId) match {
               case Some(dataConnection) => {
-                dataReceived(session, dataConnectionId, dataConnection, packId, data)
+                dataReceived(sessionId, session, dataConnectionId, dataConnection, packId, data)
               }
               case None => {
                 val lastConnectionId = session.lastConnectionId()
@@ -363,20 +445,20 @@ abstract class BcpServer {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
                   val newConnection = new Connection
                   session.connections(dataConnectionId) = newConnection
-                  dataReceived(session, dataConnectionId, newConnection, packId, data)
+                  dataReceived(sessionId, session, dataConnectionId, newConnection, packId, data)
                 } else {
                   // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                 }
               }
             }
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
         case Bcp.Acknowledge => {
           atomic { implicit txn =>
-            val (originalPack, queue) = connection.unconfirmedData().dequeue
-            connection.unconfirmedData() = queue
+            val (originalPack, queue) = connection.unconfirmedPack().dequeue
+            connection.unconfirmedPack() = queue
             originalPack match {
               case Bcp.Data(buffer) => {
                 connection.numAcknowledgeReceivedForData() += 1
@@ -393,25 +475,25 @@ abstract class BcpServer {
                 // 简单移出重传队列即可，不用任何额外操作
               }
             }
-            checkConnectionFinish(session, connectionId, connection)
+            checkConnectionFinish(sessionId, session, connectionId, connection)
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
         }
         case Bcp.Finish => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             val packId = connection.numDataReceived()
-            finishReceived(session, connectionId, connection, packId)
+            finishReceived(sessionId, session, connectionId, connection, packId)
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
         case Bcp.RetransmissionFinish(finishConnectionId, packId) => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             session.connections.get(finishConnectionId) match {
               case Some(finishConnection) => {
-                finishReceived(session, finishConnectionId, finishConnection, packId)
+                finishReceived(sessionId, session, finishConnectionId, finishConnection, packId)
               }
               case None => {
                 val lastConnectionId = session.lastConnectionId()
@@ -419,55 +501,41 @@ abstract class BcpServer {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
                   val newConnection = new Connection
                   session.connections(finishConnectionId) = newConnection
-                  finishReceived(session, finishConnectionId, newConnection, packId)
+                  finishReceived(sessionId, session, finishConnectionId, newConnection, packId)
                 } else {
                   // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                 }
               }
             }
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
         case Bcp.ShutDownInput => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             session.shutDownOutputState() = ShutDownOutputState.ShutDownOutputConfirmed
             checkShutDown(session)
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
         case Bcp.ShutDownOutput => {
-          BcpIo.enqueueAcknowledge(stream)
+          BcpIo.enqueue(stream, Bcp.Acknowledge)
           atomic { implicit txn =>
             session.shutDownInputState() = ShutDownInputState.ShutDownInputConfirmed
             checkShutDown(session)
           }
-          startReceive(session, connectionId, connection, stream)
+          startReceive(sessionId, session, connectionId, connection, stream)
           stream.flush()
         }
-        //        case Bcp.RenewRequest(newSessionId) => {
-        //          atomic {
-        //
-        //          }
-        //
-        //          ???
-        //        }
-        //        case Bcp.EndData => {
-        //          Bcp.enqueueEndDataAndWait(stream)
-        //          stream.flush()
-        //          startReceive(session, stream)
-        //        }
-        //        case Bcp.EndDataAndWait => {
-        //          atomic { implicit txn =>
-        //            if (session.receivingStreams.remove(stream)) {
-        //              startWait(session, stream)
-        //            } else {
-        //              throw new IllegalStateException("Remove stream from receivingStreams should always success.")
-        //            }
-        //          }
-        //        }
+        case Bcp.RenewRequest(newSessionId) => {
+          //          atomic {
+          //
+          //          }
+          //
+          ??? // TODO: 
+        }
       }
 
     }
@@ -498,7 +566,7 @@ abstract class BcpServer {
         session.lastConnectionId() = connectionId
         if (connection.stream() == null) {
           connection.stream() = stream
-          Txn.afterCommit(_ => startReceive(session, connectionId, connection, stream))
+          Txn.afterCommit(_ => startReceive(sessionId, session, connectionId, connection, stream))
         } else {
           logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
           stream.interrupt()

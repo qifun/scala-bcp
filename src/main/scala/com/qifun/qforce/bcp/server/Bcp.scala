@@ -55,6 +55,14 @@ object Bcp {
    */
   sealed trait AcknowledgeRequired
 
+  /**
+   * 重传的数据
+   */
+  sealed trait Retransmission {
+    val connectionId: Int
+    val packId: Int
+  }
+
   final case class ConnectionHead(sessionId: Array[Byte], connectionId: Int)
 
   final case class Data(buffer: Seq[ByteBuffer])
@@ -68,7 +76,7 @@ object Bcp {
   }
 
   case class RetransmissionData(connectionId: Int, packId: Int, buffer: Seq[ByteBuffer])
-    extends ServerToClient with ClientToServer with AcknowledgeRequired
+    extends ServerToClient with ClientToServer with AcknowledgeRequired with Retransmission
   object RetransmissionData {
     final val HeadByte: Byte = 2
   }
@@ -94,7 +102,7 @@ object Bcp {
   }
 
   case class RetransmissionFinish(connectionId: Int, packId: Int)
-    extends ServerToClient with ClientToServer with AcknowledgeRequired
+    extends ServerToClient with ClientToServer with AcknowledgeRequired with Retransmission
   object RetransmissionFinish {
     final val HeadByte: Byte = 6
   }
