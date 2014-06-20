@@ -182,23 +182,11 @@ private[server] object Bcp {
   }
 
   /**
-   * 发送[[ShutDownInput]]的一端不再接收整个[[BcpServer.Session]]的任何新数据。
-   *
    * @group Protocols
    */
-  case object ShutDownInput
+  case object ShutDown
     extends ServerToClient with ClientToServer {
     final val HeadByte: Byte = 7
-  }
-
-  /**
-   * 发送[[ShutDownInput]]的一端不再向[[BcpServer.Session]]发送任何新数据。
-   *
-   * @group Protocols
-   */
-  case object ShutDownOutput
-    extends ServerToClient with ClientToServer {
-    final val HeadByte: Byte = 8
   }
 
   /**

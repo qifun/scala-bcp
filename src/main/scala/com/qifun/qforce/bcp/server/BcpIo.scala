@@ -86,12 +86,8 @@ private[server] object BcpIo {
     stream.enqueue((headBuffer +: pack.buffer.view): _*)
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: ShutDownInput.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDownInput.HeadByte)))
-  }
-
-  final def enqueue(stream: SocketWritingQueue, pack: ShutDownOutput.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDownOutput.HeadByte)))
+  final def enqueue(stream: SocketWritingQueue, pack: ShutDown.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDown.HeadByte)))
   }
 
   final def enqueue(stream: SocketWritingQueue, pack: HeartBeat.type) {
@@ -115,10 +111,7 @@ private[server] object BcpIo {
       case pack: RetransmissionFinish => {
         enqueue(stream, pack)
       }
-      case pack @ ShutDownOutput => {
-        enqueue(stream, pack)
-      }
-      case pack @ ShutDownInput => {
+      case pack @ ShutDown => {
         enqueue(stream, pack)
       }
       case pack @ Renew => {
@@ -162,11 +155,8 @@ private[server] object BcpIo {
       case Finish.HeadByte => {
         Finish
       }
-      case ShutDownInput.HeadByte => {
-        ShutDownInput
-      }
-      case ShutDownOutput.HeadByte => {
-        ShutDownOutput
+      case ShutDown.HeadByte => {
+        ShutDown
       }
       case HeartBeat.HeadByte => {
         HeartBeat
