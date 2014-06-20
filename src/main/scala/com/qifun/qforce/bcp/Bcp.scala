@@ -1,25 +1,11 @@
-package com.qifun.qforce.bcp.server
-import scala.annotation.switch
-import com.qifun.statelessFuture.Future
-import com.qifun.statelessFuture.io.SocketInputStream
-import java.io.EOFException
-import java.io.InputStream
+package com.qifun.qforce.bcp
 import scala.concurrent.duration._
-import com.qifun.statelessFuture.io.SocketWritingQueue
 import java.nio.ByteBuffer
-import scala.collection.generic.Growable
-import org.apache.commons.io.IOUtils
-import scala.annotation.tailrec
-import java.io.ByteArrayOutputStream
-import scala.collection.mutable.ArrayBuffer
-import java.io.ObjectInputStream
-import java.io.DataInputStream
-import java.io.IOException
 
 /**
  * BCP协议相关的数据结构和常量
  */
-private[server] object Bcp {
+private[bcp] object Bcp {
 
   /**
    * 最多缓存多少个离线包

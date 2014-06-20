@@ -24,7 +24,7 @@ import com.qifun.statelessFuture.io.SocketInputStream
 import com.qifun.statelessFuture.io.SocketWritingQueue
 import com.qifun.statelessFuture.Future
 import scala.collection.immutable.Queue
-import com.qifun.qforce.bcp.server.Bcp._
+import com.qifun.qforce.bcp.Bcp._
 
 object BcpServer {
 
@@ -233,7 +233,10 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
   /**
    * 本事件触发时，`session`的所有TCP连接都已经断线。
    *
-   * 你仍然可以调用[[send]]向`session`发送数据，但这些数据要等到客户端重连时才会真正发出。
+   * 即使所有TCP连接都已经断线，`session`占用的资源仍然不会释放。
+   * 因而仍然可以调用[[send]]向`session`发送数据，但这些数据要等到客户端重连时才会真正发出。
+   * 
+   * 建议在长时间掉线后调用[[shutDown]]释放`session`占用的资源。
    */
   protected def unavailable(session: Session)
 
