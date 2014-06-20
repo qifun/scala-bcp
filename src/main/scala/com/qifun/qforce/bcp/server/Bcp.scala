@@ -21,6 +21,11 @@ import java.io.IOException
  */
 object Bcp {
 
+  /**
+   * 最多缓存多少个离线包
+   */
+  final val MaxOfflinePack = 200
+
   final val MaxConnectionsPerSession = 3
 
   /**
@@ -31,7 +36,7 @@ object Bcp {
   /**
    * 服务器多长时间收不到心跳包就杀掉TCP连接。
    */
-  final val ServerReadingTimeout = 5.seconds
+  final val ServerReadingTimeout = 6.seconds
 
   /**
    * 服务器多长时间发不出数据就杀掉TCP连接。
@@ -121,6 +126,11 @@ object Bcp {
   case object ShutDownOutput
     extends ServerToClient with ClientToServer with AcknowledgeRequired {
     final val HeadByte: Byte = 8
+  }
+
+  case object HeartBeat
+    extends ServerToClient with ClientToServer {
+    final val HeadByte: Byte = 9
   }
 
 }

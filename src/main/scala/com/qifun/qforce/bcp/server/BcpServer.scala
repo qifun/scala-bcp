@@ -198,7 +198,9 @@ object BcpServer {
      */
     private[BcpServer] final val connections = TMap.empty[Int, Connection]
 
-    private[BcpServer] final val sendingQueue: Ref[Either[Queue[Bcp.AcknowledgeRequired], SendingConnectionQueue]] = {
+    private type QueueLength = Int
+
+    private[BcpServer] final val sendingQueue: Ref[Either[(QueueLength, Queue[Bcp.AcknowledgeRequired]), SendingConnectionQueue]] = {
       Ref(Right(SendingConnectionQueue()))
     }
 
@@ -237,7 +239,6 @@ abstract class BcpServer {
     atomic { implicit txn =>
       enqueue(session, Bcp.Data(buffer))
     }
-    ??? // TODO
   }
 
   /**
@@ -307,7 +308,7 @@ abstract class BcpServer {
     session.sendingQueue.transform {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
         if (openConnections.isEmpty) {
-          Left(Queue(newPack))
+          Left((1, Queue(newPack)))
         } else {
           def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) = {
             val (first, rest) = availableConnections.splitAt(1)
@@ -321,8 +322,12 @@ abstract class BcpServer {
           }
         }
       }
-      case Left(packQueue) => {
-        Left(packQueue.enqueue(newPack))
+      case Left((queueLength, packQueue)) => {
+        if (queueLength >= Bcp.MaxOfflinePack) {
+          throw new BcpException.SendingQueueIsFull
+        } else {
+          Left((queueLength + 1, packQueue.enqueue(newPack)))
+        }
       }
     }
   }

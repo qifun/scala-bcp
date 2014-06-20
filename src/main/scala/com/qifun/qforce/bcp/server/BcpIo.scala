@@ -13,7 +13,7 @@ private[server] object BcpIo {
 
   import Bcp._
 
-  private def receiveVarint(socket: SocketInputStream): Future[Int] = {
+  final def receiveUnsignedVarint(socket: SocketInputStream): Future[Int] = {
     def receiveRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {
       (socket.available_=(1)).await
       socket.read() match {
@@ -38,13 +38,13 @@ private[server] object BcpIo {
   }
 
   @tailrec
-  private def writeVarint(buffer: ByteBuffer, value: Int) {
+  final def writeUnsignedVarint(buffer: ByteBuffer, value: Int) {
     if ((value & 0xFFFFFF80) == 0) {
       buffer.put(value.toByte)
       return ;
     } else {
       buffer.put(((value & 0x7F) | 0x80).toByte)
-      writeVarint(buffer, value >>> 7)
+      writeUnsignedVarint(buffer, value >>> 7)
     }
   }
 
@@ -63,8 +63,8 @@ private[server] object BcpIo {
   final def enqueue(stream: SocketWritingQueue, pack: RetransmissionFinish) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(RetransmissionFinish.HeadByte)
-    writeVarint(headBuffer, pack.connectionId)
-    writeVarint(headBuffer, pack.packId)
+    writeUnsignedVarint(headBuffer, pack.connectionId)
+    writeUnsignedVarint(headBuffer, pack.packId)
     headBuffer.flip()
     stream.enqueue(headBuffer)
   }
@@ -72,9 +72,9 @@ private[server] object BcpIo {
   final def enqueue(stream: SocketWritingQueue, pack: RetransmissionData) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(RetransmissionData.HeadByte)
-    writeVarint(headBuffer, pack.connectionId)
-    writeVarint(headBuffer, pack.packId)
-    writeVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.connectionId)
+    writeUnsignedVarint(headBuffer, pack.packId)
+    writeUnsignedVarint(headBuffer, pack.buffer.length)
     headBuffer.flip()
     stream.enqueue((headBuffer +: pack.buffer.view): _*)
   }
@@ -82,7 +82,7 @@ private[server] object BcpIo {
   final def enqueue(stream: SocketWritingQueue, pack: Data) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(Data.HeadByte)
-    writeVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.buffer.length)
     headBuffer.flip()
     stream.enqueue((headBuffer +: pack.buffer.view): _*)
   }
@@ -93,6 +93,10 @@ private[server] object BcpIo {
 
   final def enqueue(stream: SocketWritingQueue, pack: ShutDownOutput.type) {
     stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDownOutput.HeadByte)))
+  }
+
+  final def enqueue(stream: SocketWritingQueue, pack: HeartBeat.type) {
+    stream.enqueue(ByteBuffer.wrap(Array[Byte](HeartBeat.HeadByte)))
   }
 
   final def enqueue(stream: SocketWritingQueue, pack: ServerToClient) {
@@ -121,41 +125,10 @@ private[server] object BcpIo {
       case pack @ Renew => {
         enqueue(stream, pack)
       }
+      case pack @ HeartBeat => {
+        enqueue(stream, pack)
+      }
     }
-  }
-  //  final def enqueueEndData(stream: SocketWritingQueue) {
-  //    stream.enqueue(ByteBuffer.wrap(Array[Byte](EndData.HeadByte)))
-  //  }
-  //
-  //  final def enqueueEndDataAndWait(stream: SocketWritingQueue) {
-  //    stream.enqueue(ByteBuffer.wrap(Array[Byte](EndDataAndWait.HeadByte)))
-  //  }
-
-  //  final def enqueue(stream: SocketWritingQueue, pack: ServerToClient) {
-  //    pack match {
-  //      case Renew => stream.enqueue(ByteBuffer.wrap(Array[Byte](Renew.HeadByte)))
-  //      case EndDataAndWait => stream.enqueue(ByteBuffer.wrap(Array[Byte](EndDataAndWait.HeadByte)))
-  //      case EndData => stream.enqueue(ByteBuffer.wrap(Array[Byte](EndData.HeadByte)))
-  //      case Data(packId, data) => {
-  //        val headBuffer = ByteBuffer.allocate(10)
-  //        headBuffer.put(Data.HeadByte)
-  //        headBuffer.putInt(packId)
-  //        val bufferBuilder = ArrayBuffer[ByteBuffer](headBuffer)
-  //        val length = readByteBuffers(bufferBuilder, data)
-  //        writeVarint(headBuffer, length)
-  //        headBuffer.flip()
-  //        stream.enqueue(bufferBuilder: _*)
-  //      }
-  //    }
-  //  }
-
-  private def receiveBigEndianInt(inputStream: SocketInputStream) = Future {
-    inputStream.available_=(4).await
-    val byte1 = inputStream.read()
-    val byte2 = inputStream.read()
-    val byte3 = inputStream.read()
-    val byte4 = inputStream.read()
-    ((byte1 << 24) + (byte2 << 16) + (byte3 << 8) + (byte4 << 0))
   }
 
   @throws(classOf[IOException])
@@ -163,24 +136,41 @@ private[server] object BcpIo {
     stream.available_=(1).await
     stream.read() match {
       case Data.HeadByte => {
-        val length = receiveVarint(stream).await
+        val length = receiveUnsignedVarint(stream).await
         stream.available_=(length).await
         val buffer = new ArrayBuffer[ByteBuffer]
         stream.move(buffer, length)
         Data(buffer)
       }
       case RetransmissionData.HeadByte => {
-        val connectionId = receiveVarint(stream).await
-        val packId = receiveVarint(stream).await
-        val length = receiveVarint(stream).await
+        val connectionId = receiveUnsignedVarint(stream).await
+        val packId = receiveUnsignedVarint(stream).await
+        val length = receiveUnsignedVarint(stream).await
         stream.available_=(length).await
         val buffer = new ArrayBuffer[ByteBuffer]
         stream.move(buffer, length)
         RetransmissionData(connectionId, packId, buffer)
       }
+      case RetransmissionFinish.HeadByte => {
+        val connectionId = receiveUnsignedVarint(stream).await
+        val packId = receiveUnsignedVarint(stream).await
+        RetransmissionFinish(connectionId, packId)
+      }
       case Acknowledge.HeadByte => Acknowledge
       case RenewRequest.HeadByte => {
         RenewRequest(receiveSessionId(stream).await)
+      }
+      case Finish.HeadByte => {
+        Finish
+      }
+      case ShutDownInput.HeadByte => {
+        ShutDownInput
+      }
+      case ShutDownOutput.HeadByte => {
+        ShutDownOutput
+      }
+      case HeartBeat.HeadByte => {
+        HeartBeat
       }
       case _ => throw new BcpException.UnknownHeadByte
     }
@@ -189,7 +179,7 @@ private[server] object BcpIo {
 
   final def receiveHead(stream: SocketInputStream) = Future {
     val sessionId = receiveSessionId(stream).await
-    val connectionId = receiveVarint(stream).await
+    val connectionId = receiveUnsignedVarint(stream).await
     ConnectionHead(sessionId, connectionId)
   }
 
