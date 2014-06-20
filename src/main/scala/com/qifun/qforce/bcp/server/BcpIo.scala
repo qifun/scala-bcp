@@ -8,10 +8,9 @@ import java.io.IOException
 import scala.annotation.tailrec
 import com.qifun.statelessFuture.io.SocketWritingQueue
 import scala.collection.mutable.ArrayBuffer
+import com.qifun.qforce.bcp.server.Bcp._
 
 private[server] object BcpIo {
-
-  import Bcp._
 
   final def receiveUnsignedVarint(socket: SocketInputStream): Future[Int] = {
     def receiveRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {
