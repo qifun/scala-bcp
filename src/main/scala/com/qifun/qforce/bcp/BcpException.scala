@@ -1,4 +1,4 @@
-package com.qifun.qforce.bcp.server
+package com.qifun.qforce.bcp
 
 import java.io.IOException
 

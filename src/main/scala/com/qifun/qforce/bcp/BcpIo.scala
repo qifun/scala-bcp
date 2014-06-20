@@ -1,16 +1,18 @@
-package com.qifun.qforce.bcp.server
+package com.qifun.qforce.bcp
 
 import java.io.EOFException
 import java.io.IOException
 import java.nio.ByteBuffer
 import scala.annotation.tailrec
-import scala.collection.mutable.ArrayBuffer
 import com.qifun.qforce.bcp.Bcp._
 import com.qifun.statelessFuture.Future
 import com.qifun.statelessFuture.io.SocketInputStream
 import com.qifun.statelessFuture.io.SocketWritingQueue
+import java.io.EOFException
+import java.io.IOException
+import scala.collection.mutable.ArrayBuffer
 
-private[server] object BcpIo {
+private[bcp] object BcpIo {
 
   final def receiveUnsignedVarint(socket: SocketInputStream): Future[Int] = {
     def receiveRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {

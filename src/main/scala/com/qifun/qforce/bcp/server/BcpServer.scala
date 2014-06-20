@@ -25,6 +25,9 @@ import com.qifun.statelessFuture.io.SocketWritingQueue
 import com.qifun.statelessFuture.Future
 import scala.collection.immutable.Queue
 import com.qifun.qforce.bcp.Bcp._
+import BcpServer._
+import com.qifun.qforce.bcp.BcpIo
+import com.qifun.qforce.bcp.BcpException
 
 object BcpServer {
 
@@ -203,8 +206,6 @@ object BcpServer {
 
   }
 }
-
-import BcpServer._
 /**
  * 处理BCP协议的服务器。
  *
