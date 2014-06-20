@@ -129,10 +129,6 @@ object BcpServer {
 
   private type BoxedSessionId = WrappedArray[Byte]
 
-  //  import scala.language.existentials // Workaround for https://issues.scala-lang.org/browse/SI-6541
-  //  final case class CometAvailable(cometStream: Stream, timer: HeartBeatTimer)
-  //  final case class SendingPack(connectionId: Int, packId: Int, buffers: Seq[ByteBuffer])
-
   private final class Connection {
 
     val stream = Ref.make[Stream]
@@ -168,14 +164,12 @@ object BcpServer {
   private sealed trait ShutDownInputState
   private object ShutDownInputState {
     final case object NotShutDownInput extends ShutDownInputState
-    final case object ShutDownInputSent extends ShutDownInputState
-    final case object ShutDownInputConfirmed extends ShutDownInputState
+    final case object InputShutedDown extends ShutDownInputState
   }
   private sealed trait ShutDownOutputState
   private object ShutDownOutputState {
     final case object NotShutDownOutput extends ShutDownOutputState
-    final case object ShutDownOutputSent extends ShutDownOutputState
-    final case object ShutDownOutputConfirmed extends ShutDownOutputState
+    final case object OutputShutedDown extends ShutDownOutputState
 
     /**
      * 等待所有已发的数据都收到[[Acknowledge]]
@@ -187,9 +181,9 @@ object BcpServer {
 
   private final case class SendingConnectionQueue(
     val openConnections: Set[Connection] = Set.empty[Connection],
-    private val availableConnections: Set[Connection] = Set.empty[Connection])
+    val availableConnections: Set[Connection] = Set.empty[Connection])
 
-  final case class PacketQueue(length: Int, queue: Queue[AcknowledgeRequired with ServerToClient])
+  final case class PacketQueue(length: Int = 0, queue: Queue[AcknowledgeRequired with ServerToClient] = Queue.empty)
 
   trait Session {
 
@@ -258,7 +252,19 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
    */
   protected def open(session: Session)
 
-  protected def closed(session: Session)
+  /**
+   * 触发本事件，表示会话的所有TCP连接都已经断线。
+   *
+   * 你仍然可以调用[[send]]向`session`发送数据，但这些数据要等到客户端重连时才会真正发出。
+   */
+  protected def unavailable(session: Session)
+
+  /**
+   * 触发本事件，表示会话的存在至少一个可用的TCP连接。
+   */
+  protected def available(session: Session)
+
+  protected def shutedDown(session: Session)
 
   protected def received(session: Session, pack: ByteBuffer*)
 
@@ -277,9 +283,25 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
         }
         resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
+        Txn.afterCommit(_ => available(session))
         Right(SendingConnectionQueue(Set(connection), Set(connection)))
       }
     }
+  }
+
+  private def removeOpenConnection(session: Session, connection: Connection)(implicit txn: InTxn) {
+    session.sendingQueue() match {
+      case Right(SendingConnectionQueue(openConnections, availableConnections)) =>
+        if (openConnections.head == connection && openConnections.tail.isEmpty) {
+          session.sendingQueue() = Left(PacketQueue())
+          Txn.afterCommit(_ => unavailable(session))
+        } else {
+          val newQueue = SendingConnectionQueue(openConnections - connection, availableConnections - connection)
+          session.sendingQueue() = Right(newQueue)
+        }
+      case left: Left[_, _] =>
+    }
+
   }
 
   /**
@@ -328,6 +350,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPack().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
+      removeOpenConnection(session, connection)
       session.connections.remove(connectionId)
       val connectionStream = connection.stream()
       connection.stream() = null
@@ -338,13 +361,12 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
         heartBeatTimer.cancel(false)
       }
       if (session.connections.isEmpty &&
-        session.shutDownOutputState() == ShutDownOutputState.ShutDownOutputConfirmed &&
-        session.shutDownInputState() == ShutDownInputState.ShutDownInputConfirmed) {
+        session.shutDownOutputState() == ShutDownOutputState.OutputShutedDown &&
+        session.shutDownInputState() == ShutDownInputState.InputShutedDown) {
         val removedSessionOption = sessions.remove(sessionId)
         assert(removedSessionOption == Some(session))
       }
     }
-    // TODO: 支持关闭整个Session
   }
 
   private def dataReceived(
@@ -366,9 +388,23 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
   }
 
   private def checkShutDown(session: Session)(implicit txn: InTxn) {
-    if (session.shutDownInputState() == ShutDownInputState.ShutDownInputConfirmed &&
-      session.shutDownOutputState() == ShutDownOutputState.ShutDownOutputConfirmed) {
-      ??? // TODO: 如果两端都已经ShutDown，则进入Finish所有TCP连接的流程
+    if (session.shutDownInputState() == ShutDownInputState.InputShutedDown &&
+      session.shutDownOutputState() == ShutDownOutputState.OutputShutedDown) {
+      session.sendingQueue() match {
+        case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
+          for (connection <- openConnections) {
+            val stream = connection.stream()
+            connection.stream() = null
+            assert(stream != null)
+            val heartBeatTimer = stream.heartBeatTimer()
+            // 直接关闭所有TCP连接，对端要是还没收到ShutDownInput的Acknowledge的话，只能靠TCP的CLOSE_WAIT机制了。
+            Txn.afterCommit(_ => stream.shutDown())
+          }
+          session.sendingQueue() = Left(PacketQueue())
+        }
+        case left: Left[_, _] =>
+      }
+      Txn.afterCommit(_ => shutedDown(session))
     }
   }
 
@@ -401,6 +437,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
       case e: Exception => {
         stream.interrupt()
         atomic { implicit txn =>
+          removeOpenConnection(session, connection)
           connection.stream() = null
           val heartBeatTimer = stream.heartBeatTimer()
           stream.heartBeatTimer() = null
@@ -473,14 +510,6 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
               case Data(buffer) => {
                 connection.numAcknowledgeReceivedForData() += 1
               }
-              case ShutDownInput => {
-                session.shutDownInputState() = ShutDownInputState.ShutDownInputConfirmed
-                checkShutDown(session)
-              }
-              case ShutDownOutput => {
-                session.shutDownOutputState() = ShutDownOutputState.ShutDownOutputConfirmed
-                checkShutDown(session)
-              }
               case RetransmissionData(_, _, _) | Finish | RetransmissionFinish(_, _) => {
                 // 简单移出重传队列即可，不用任何额外操作
               }
@@ -527,7 +556,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(stream)
-            session.shutDownOutputState() = ShutDownOutputState.ShutDownOutputConfirmed
+            session.shutDownOutputState() = ShutDownOutputState.OutputShutedDown
             checkShutDown(session)
           }
           startReceive(sessionId, session, connectionId, connection, stream)
@@ -537,7 +566,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(stream)
-            session.shutDownInputState() = ShutDownInputState.ShutDownInputConfirmed
+            session.shutDownInputState() = ShutDownInputState.InputShutedDown
             checkShutDown(session)
           }
           startReceive(sessionId, session, connectionId, connection, stream)
@@ -589,10 +618,10 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
           }
         }
         val connection = session.connections.getOrElseUpdate(connectionId, new Connection)
-        addOpenConnection(session, connection)
         session.lastConnectionId() = connectionId
         if (connection.stream() == null) {
           connection.stream() = stream
+          addOpenConnection(session, connection)
           Txn.afterCommit(_ => startReceive(sessionId, session, connectionId, connection, stream))
           val timer =
             executor.scheduleWithFixedDelay(

@@ -187,7 +187,7 @@ private[server] object Bcp {
    * @group Protocols
    */
   case object ShutDownInput
-    extends ServerToClient with ClientToServer with AcknowledgeRequired {
+    extends ServerToClient with ClientToServer {
     final val HeadByte: Byte = 7
   }
 
@@ -197,7 +197,7 @@ private[server] object Bcp {
    * @group Protocols
    */
   case object ShutDownOutput
-    extends ServerToClient with ClientToServer with AcknowledgeRequired {
+    extends ServerToClient with ClientToServer {
     final val HeadByte: Byte = 8
   }
 
