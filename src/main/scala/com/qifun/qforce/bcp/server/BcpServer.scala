@@ -30,9 +30,6 @@ object BcpServer {
 
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
-  //  class ShouldCancelException extends Exception
-  //
-
   private class IdSetIsFullException extends Exception
 
   private def between(low: Int, high: Int, test: Int): Boolean = {
@@ -187,7 +184,7 @@ object BcpServer {
 
   trait Session {
 
-    private[BcpServer] final val sessionId = Ref.make[Array[Byte]]
+    private[BcpServer] final var sessionId: Array[Byte] = null
 
     private[BcpServer] final val lastConnectionId = Ref(0)
 
@@ -387,7 +384,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
 
   private def checkShutDown(session: Session)(implicit txn: InTxn) {
     trySend(session, ShutDown)
-    val removedSessionOption = sessions.remove(session.sessionId())
+    val removedSessionOption = sessions.remove(session.sessionId)
     assert(removedSessionOption == Some(session))
     session.sendingQueue() match {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
@@ -417,7 +414,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
       case None => {
         connection.finishIdReceived() = Some(packId)
         checkConnectionFinish(session, connectionId, connection)
-        // 无需通知用户，结束的只是一个连接，而不是整个Session
+        // 无需触发事件通知用户，结束的只是一个连接，而不是整个Session
       }
       case Some(originalPackId) => {
         assert(originalPackId == packId)
@@ -554,15 +551,29 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
             checkShutDown(session)
           }
         }
-        case RenewRequest(newSessionId) => {
-          //          atomic {
-          //
-          //          }
-          //
-          ??? // TODO: 
+        case Renew => {
+          atomic { implicit txn =>
+            session.sendingQueue() match {
+              case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
+                for (originalConnection <- openConnections) {
+                  if (originalConnection != connection) {
+                    val stream = originalConnection.stream()
+                    stream.interrupt()
+                    val heartBeatTimer = stream.heartBeatTimer()
+                    Txn.afterCommit(_ => heartBeatTimer.cancel(false))
+                    stream.heartBeatTimer() = null
+                    originalConnection.stream() = null
+                  }
+                }
+              }
+              case _: Left[_, _] =>
+            }
+            session.sendingQueue() = Right(SendingConnectionQueue(Set(connection), Set(connection)))
+            session.connections.clear()
+            session.connections(connectionId) = connection
+          }
         }
       }
-
     }
   }
 
@@ -593,14 +604,13 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
 
   protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     val stream = new Stream(socket)
-
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
     for (ConnectionHead(sessionId, connectionId) <- BcpIo.receiveHead(stream)) {
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
           case None => {
             val session = classTag[Session].runtimeClass.newInstance().asInstanceOf[Session]
-            session.sessionId() = sessionId
+            session.sessionId = sessionId
             sessions(sessionId) = session
             Txn.afterCommit(_ => open(session))
             session

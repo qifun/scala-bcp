@@ -139,21 +139,9 @@ private[server] object Bcp {
   /**
    * @group Protocols
    */
-  case object Renew extends ServerToClient {
+  case object Renew extends ClientToServer {
     final val HeadByte: Byte = 3
   }
-
-  /**
-   * @group Protocols
-   */
-  case object RenewRequest {
-    final val HeadByte: Byte = 4
-  }
-
-  /**
-   * @group Protocols
-   */
-  final case class RenewRequest(newSessionId: Array[Byte]) extends ClientToServer
 
   /**
    * 结束一个TCP连接，相当于TCP FIN。

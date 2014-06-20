@@ -114,9 +114,6 @@ private[server] object BcpIo {
       case pack @ ShutDown => {
         enqueue(stream, pack)
       }
-      case pack @ Renew => {
-        enqueue(stream, pack)
-      }
       case pack @ HeartBeat => {
         enqueue(stream, pack)
       }
@@ -149,8 +146,8 @@ private[server] object BcpIo {
         RetransmissionFinish(connectionId, packId)
       }
       case Acknowledge.HeadByte => Acknowledge
-      case RenewRequest.HeadByte => {
-        RenewRequest(receiveSessionId(stream).await)
+      case Renew.HeadByte => {
+        Renew
       }
       case Finish.HeadByte => {
         Finish
