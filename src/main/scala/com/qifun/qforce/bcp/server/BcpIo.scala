@@ -1,14 +1,14 @@
 package com.qifun.qforce.bcp.server
 
-import com.qifun.statelessFuture.io.SocketInputStream
-import com.qifun.statelessFuture.Future
 import java.io.EOFException
-import java.nio.ByteBuffer
 import java.io.IOException
+import java.nio.ByteBuffer
 import scala.annotation.tailrec
-import com.qifun.statelessFuture.io.SocketWritingQueue
 import scala.collection.mutable.ArrayBuffer
-import com.qifun.qforce.bcp.server.Bcp._
+import com.qifun.qforce.bcp.Bcp._
+import com.qifun.statelessFuture.Future
+import com.qifun.statelessFuture.io.SocketInputStream
+import com.qifun.statelessFuture.io.SocketWritingQueue
 
 private[server] object BcpIo {
 
