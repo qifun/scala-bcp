@@ -42,7 +42,7 @@ import java.nio.ByteBuffer
  *  1. 服务器收到[[Finish]]时，应当回复[[Acknowledge]]，然后关掉底层连接。
  *  1. 如果一个底层TCP连接因为超时或者别的原因异常中断，
  *     那么每一端都必须在同一会话的其他TCP连接上，
- *     重发那些尚未收到对应[[Acknowledge]]的[[Data]]和[[Finish]]
+ *     重发那些尚未收到对应[[Acknowledge]]的[[Data]]和[[Finish]]。
  *     重发时，应当发送[[RetransmissionData]]和[[RetransmissionFinish]]包。
  *     重发的包中，包含原先连接ID和原先包ID。
  *     包ID是指原包的序号，从零开始计算，
