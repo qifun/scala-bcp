@@ -119,9 +119,9 @@ object BcpServer {
     }
     val heartBeatTimer = Ref.make[HeartBeatTimer]
 
-    override protected final def readingTimeout = ServerReadingTimeout
+    override protected final def readingTimeout = ReadingTimeout
 
-    override protected final def writingTimeout = ServerWritingTimeout
+    override protected final def writingTimeout = WritingTimeout
 
   }
 
@@ -587,9 +587,9 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
     val newTimer =
       executor.scheduleWithFixedDelay(
         stream,
-        ServerHeartBeatDelay.length,
-        ServerHeartBeatDelay.length,
-        ServerHeartBeatDelay.unit)
+        HeartBeatDelay.length,
+        HeartBeatDelay.length,
+        HeartBeatDelay.unit)
     Txn.afterRollback(_ => newTimer.cancel(false))
     stream.heartBeatTimer() = newTimer
   }
@@ -635,9 +635,9 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
           val timer =
             executor.scheduleWithFixedDelay(
               stream,
-              ServerHeartBeatDelay.length,
-              ServerHeartBeatDelay.length,
-              ServerHeartBeatDelay.unit)
+              HeartBeatDelay.length,
+              HeartBeatDelay.length,
+              HeartBeatDelay.unit)
           Txn.afterRollback(_ => timer.cancel(false))
           stream.heartBeatTimer() = timer
         } else {
