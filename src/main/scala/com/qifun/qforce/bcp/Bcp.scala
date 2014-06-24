@@ -35,7 +35,7 @@ import java.nio.ByteBuffer
  *  1. 当客户端认为已有底层TCP连接速度太慢时，客户端可以发起新的TCP连接，
  *     把一部分[[Data]]放到新的TCP连接上发送。
  *  1. 新增TCP连接与首个TCP一样，仍然属于同一会话，
- *  1. 客户端也需要在连接建立后发送[[NumBytesSessionId]]字节的会话ID，
+ *     客户端也需要在连接建立后发送[[NumBytesSessionId]]字节的会话ID，
  *     和varint格式的底层连接ID。
  *     但此处的会话ID应当重用原有的会话ID，不要生成新ID。
  *  1. 如果客户端发现某一会话中的TCP连接长期空闲，
