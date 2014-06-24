@@ -28,11 +28,12 @@ import java.nio.ByteBuffer
  *     每当客户端发起新TCP连接时，底层连接ID递增1。
  *  1. 客户端或服务端发送[[Data]]包，向对端发送用户数据。
  *  1. 每发一个[[Data]]，对端都回应[[Acknowledge]]。
- *  1. 如果客户端或服务端连续[[ServerHeartBeatDelay]]时间，
+ *  1. 如果客户端或服务端长时间连续[[ServerHeartBeatDelay]]时间，
  *     都没有[[Packet]]需要发送，那么发送一个[[HeartBeat]]到对端。
  *  1. 如果客户端或服务端连续[[ServerReadingTimeout]]都收不到任何数据，
- *     就认为这个TCP连接已经没救了，关闭这个TCP连接。
- *  1. 当客户端认为已有底层TCP连接速度太慢时，客户端可以发起新的TCP连接。
+ *     就认为这个TCP连接已经没救了，就关闭这个TCP连接。
+ *  1. 当客户端认为已有底层TCP连接速度太慢时，客户端可以发起新的TCP连接，
+ *     把一部分[[Data]]放到新的TCP连接上发送。
  *  1. 新增TCP连接与首个TCP一样，仍然属于同一会话，
  *  1. 客户端也需要在连接建立后发送[[NumBytesSessionId]]字节的会话ID，
  *     和varint格式的底层连接ID。
