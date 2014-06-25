@@ -96,7 +96,7 @@ private[bcp] object BcpSession {
     def allReceivedBelow(id: Int): Boolean
   }
 
-  private[bcp] final class Stream(override protected final val socket: AsynchronousSocketChannel)
+  private[bcp] final class Stream(override protected val socket: AsynchronousSocketChannel)
     extends SocketInputStream with SocketWritingQueue with Runnable {
 
     override final def run() {
@@ -180,7 +180,7 @@ trait BcpSession {
   private[bcp] def internalExecutor: ScheduledExecutorService
 
   /**
-   * 每一次触发表示与客户端建立了一次新的会话。
+   * 每一次触发表示与对端建立了一次新的会话。
    */
   protected def open()
 
@@ -208,7 +208,7 @@ trait BcpSession {
 
   protected def received(pack: ByteBuffer*)
 
-  private final val lastConnectionId = Ref(0)
+  private val lastConnectionId = Ref(0)
 
   /**
    * 当前连接，包括尚未关闭的连接和已经关闭但数据尚未全部确认的连接。
@@ -217,9 +217,9 @@ trait BcpSession {
    * 且[[Connection.unconfirmedPack]]为空，
    * 才会把[[Connection]]从[[connections]]中移除。
    */
-  private final val connections = TMap.empty[Int, Connection]
+  private val connections = TMap.empty[Int, Connection]
 
-  private final val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
+  private val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
     Ref(Right(SendingConnectionQueue()))
   }
 
