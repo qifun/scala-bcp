@@ -5,7 +5,14 @@ import java.nio.ByteBuffer
 /**
  * BCP协议相关的数据结构和常量
  * 
- * BCP（Brutal Control Protocol，残暴控制协议）是基于TCP实现的用户层传输协议。
+ * BCP（Brutal Control Protocol，残暴控制协议）是基于TCP实现的用户层传输协议。特性如下：
+ *
+ *  1. 基于连接
+ *  1. 可靠，低延时
+ *  1. 以数据包为单位，没有流
+ *  1. 乱序数据包，不保证接收顺序与发送顺序一致
+ * 
+ * <h3>BCP vs. TCP</h3>
  * 
  * BCP和普通TCP功能相似，重新实现了TCP的包确认重发机制。
  * 
@@ -18,8 +25,8 @@ import java.nio.ByteBuffer
  * 这是因为，一条BCP会话，可能会对应多达[[MaxConnectionsPerSession]]个底层TCP连接，
  * 而这几条底层TCP连接的延时可能并不相同。
  * 
- * 一个BCP会话的过程如下：
- *
+ * <h3>BCP会话的一生</h3>
+ * 
  *  1. 客户端随机生成[[NumBytesSessionId]]字节的会话ID。
  *  1. 客户端发起TCP连接。
  *  1. TCP连接成功建立后，客户端发送[[ConnectionHead]]，
