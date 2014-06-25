@@ -236,7 +236,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
    *
    * 即使所有TCP连接都已经断线，`session`占用的资源仍然不会释放。
    * 因而仍然可以调用[[send]]向`session`发送数据，但这些数据要等到客户端重连时才会真正发出。
-   * 
+   *
    * 建议在长时间掉线后调用[[shutDown]]释放`session`占用的资源。
    */
   protected def unavailable(session: Session)
@@ -431,37 +431,8 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
     connectionId: Int,
     connection: Connection,
     stream: Stream) {
-    implicit def catcher: Catcher[Unit] = {
-      case e: Exception => {
-        stream.interrupt()
-        atomic { implicit txn =>
-          removeOpenConnection(session, connection)
-          connection.stream() = null
-          val heartBeatTimer = stream.heartBeatTimer()
-          stream.heartBeatTimer() = null
-          Txn.afterCommit(_ => heartBeatTimer.cancel(false))
-          connection.unconfirmedPack().foldLeft(connection.numAcknowledgeReceivedForData()) {
-            case (packId, Data(buffer)) => {
-              enqueue(session, RetransmissionData(connectionId, packId, buffer))
-              packId + 1
-            }
-            case (packId, Finish) => {
-              RetransmissionFinish(connectionId, packId)
-              enqueue(session, RetransmissionFinish(connectionId, packId))
-              packId + 1
-            }
-            case (nextPackId, pack) => {
-              enqueue(session, pack)
-              nextPackId
-            }
-          }
-          connection.unconfirmedPack() = Queue.empty
-          checkConnectionFinish(session, connectionId, connection)
-        }
-      }
-    }
-    for (clientToServer <- BcpIo.receive(stream)) {
-      clientToServer match {
+    val receiveFuture = Future {
+      BcpIo.receive(stream).await match {
         case HeartBeat => {
           startReceive(session, connectionId, connection, stream)
         }
@@ -578,6 +549,40 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
           }
         }
       }
+    }
+
+    implicit def catcher: Catcher[Unit] = {
+      case e: Exception => {
+        logger.warning(e)
+        stream.interrupt()
+        atomic { implicit txn =>
+          removeOpenConnection(session, connection)
+          connection.stream() = null
+          val heartBeatTimer = stream.heartBeatTimer()
+          stream.heartBeatTimer() = null
+          Txn.afterCommit(_ => heartBeatTimer.cancel(false))
+          connection.unconfirmedPack().foldLeft(connection.numAcknowledgeReceivedForData()) {
+            case (packId, Data(buffer)) => {
+              enqueue(session, RetransmissionData(connectionId, packId, buffer))
+              packId + 1
+            }
+            case (packId, Finish) => {
+              RetransmissionFinish(connectionId, packId)
+              enqueue(session, RetransmissionFinish(connectionId, packId))
+              packId + 1
+            }
+            case (nextPackId, pack) => {
+              enqueue(session, pack)
+              nextPackId
+            }
+          }
+          connection.unconfirmedPack() = Queue.empty
+          checkConnectionFinish(session, connectionId, connection)
+        }
+      }
+    }
+    for (_ <- receiveFuture) {
+      logger.fine("The packet is processed successfully.")
     }
   }
 
