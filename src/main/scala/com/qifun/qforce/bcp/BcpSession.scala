@@ -185,17 +185,17 @@ trait BcpSession {
   protected def open()
 
   /**
-   * 本事件触发时，本`BcpSession`的所有TCP连接都已经断线。
+   * 本事件触发时，本[[BcpSession]]的所有TCP连接都已经断线。
    *
-   * 即使所有TCP连接都已经断线，本`BcpSession`占用的资源仍然不会释放。
-   * 因而仍然可以调用[[send]]向本`BcpSession`发送数据，但这些数据要等到客户端重连时才会真正发出。
+   * 即使所有TCP连接都已经断线，本[[BcpSession]]占用的资源仍然不会释放。
+   * 因而仍然可以调用[[send]]向本[[BcpSession]]发送数据，但这些数据要等到客户端重连时才会真正发出。
    *
-   * 建议在长时间掉线后调用[[shutDown]]释放本`BcpSession`占用的资源。
+   * 建议在长时间掉线后调用[[shutDown]]释放本[[BcpSession]]占用的资源。
    */
   protected def unavailable()
 
   /**
-   * 本事件触发时，本`BcpSession`存在至少一个可用的TCP连接。
+   * 本事件触发时，本[[BcpSession]]存在至少一个可用的TCP连接。
    */
   protected def available()
 
