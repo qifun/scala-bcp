@@ -120,7 +120,7 @@ private[bcp] object BcpIo {
         enqueue(queue, pack)
       }
       case pack @ Renew => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
     }
   }
