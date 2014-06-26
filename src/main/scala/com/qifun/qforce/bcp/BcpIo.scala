@@ -14,10 +14,10 @@ import scala.collection.mutable.ArrayBuffer
 
 private[bcp] object BcpIo {
 
-  final def receiveUnsignedVarint(socket: SocketInputStream): Future[Int] = {
+  final def receiveUnsignedVarint(stream: SocketInputStream): Future[Int] = {
     def receiveRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {
-      (socket.available_=(1)).await
-      socket.read() match {
+      (stream.available_=(1)).await
+      stream.read() match {
         case -1 => throw new EOFException
         case b => {
           if (i < 32) {
@@ -49,75 +49,75 @@ private[bcp] object BcpIo {
     }
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: Acknowledge.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
+  final def enqueue(queue: SocketWritingQueue, pack: Acknowledge.type) {
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: Renew.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
+  final def enqueue(queue: SocketWritingQueue, pack: Renew.type) {
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: Finish.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](Finish.HeadByte)))
+  final def enqueue(queue: SocketWritingQueue, pack: Finish.type) {
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](Finish.HeadByte)))
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: RetransmissionFinish) {
+  final def enqueue(queue: SocketWritingQueue, pack: RetransmissionFinish) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(RetransmissionFinish.HeadByte)
     writeUnsignedVarint(headBuffer, pack.connectionId)
     writeUnsignedVarint(headBuffer, pack.packId)
     headBuffer.flip()
-    stream.enqueue(headBuffer)
+    queue.enqueue(headBuffer)
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: RetransmissionData) {
+  final def enqueue(queue: SocketWritingQueue, pack: RetransmissionData) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(RetransmissionData.HeadByte)
     writeUnsignedVarint(headBuffer, pack.connectionId)
     writeUnsignedVarint(headBuffer, pack.packId)
     writeUnsignedVarint(headBuffer, pack.buffer.length)
     headBuffer.flip()
-    stream.enqueue((headBuffer +: pack.buffer.view): _*)
+    queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: Data) {
+  final def enqueue(queue: SocketWritingQueue, pack: Data) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(Data.HeadByte)
     writeUnsignedVarint(headBuffer, pack.buffer.length)
     headBuffer.flip()
-    stream.enqueue((headBuffer +: pack.buffer.view): _*)
+    queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: ShutDown.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](ShutDown.HeadByte)))
+  final def enqueue(queue: SocketWritingQueue, pack: ShutDown.type) {
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](ShutDown.HeadByte)))
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: HeartBeat.type) {
-    stream.enqueue(ByteBuffer.wrap(Array[Byte](HeartBeat.HeadByte)))
+  final def enqueue(queue: SocketWritingQueue, pack: HeartBeat.type) {
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](HeartBeat.HeadByte)))
   }
 
-  final def enqueue(stream: SocketWritingQueue, pack: ServerToClient) {
+  final def enqueue(queue: SocketWritingQueue, pack: ServerToClient) {
     pack match {
       case pack @ Acknowledge => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack: Data => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack @ Finish => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack: RetransmissionData => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack: RetransmissionFinish => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack @ ShutDown => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
       case pack @ HeartBeat => {
-        enqueue(stream, pack)
+        enqueue(queue, pack)
       }
     }
   }
