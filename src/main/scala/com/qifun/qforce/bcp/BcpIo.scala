@@ -96,7 +96,7 @@ private[bcp] object BcpIo {
     queue.enqueue(ByteBuffer.wrap(Array[Byte](HeartBeat.HeadByte)))
   }
 
-  final def enqueue(queue: SocketWritingQueue, pack: ServerToClient) {
+  final def enqueue(queue: SocketWritingQueue, pack: Packet) {
     pack match {
       case pack @ Acknowledge => {
         enqueue(queue, pack)
@@ -119,6 +119,9 @@ private[bcp] object BcpIo {
       case pack @ HeartBeat => {
         enqueue(queue, pack)
       }
+      case pack @ Renew => {
+        enqueue(stream, pack)
+      }
     }
   }
 
@@ -128,6 +131,9 @@ private[bcp] object BcpIo {
     stream.read() match {
       case Data.HeadByte => {
         val length = receiveUnsignedVarint(stream).await
+        if (length > MaxDataByteNum) {
+          throw new BcpException.DataTooBig
+        }
         stream.available_=(length).await
         val buffer = new ArrayBuffer[ByteBuffer]
         stream.move(buffer, length)
@@ -176,5 +182,13 @@ private[bcp] object BcpIo {
     var sessionId = Array.ofDim[Byte](NumBytesSessionId)
     stream.read(sessionId)
     sessionId
+  }
+
+  final def sendHead(stream: SocketWritingQueue, sessionId: Array[Byte], connectionId: Int) = {
+    val headBuffer = ByteBuffer.allocate(20)
+    headBuffer.put(sessionId)
+    writeUnsignedVarint(headBuffer, connectionId)
+    headBuffer.flip()
+    stream.enqueue(headBuffer)
   }
 }

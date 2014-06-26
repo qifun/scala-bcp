@@ -15,6 +15,7 @@ import scala.concurrent.stm.Txn
 import java.util.concurrent.ScheduledExecutorService
 import scala.util.control.Exception.Catcher
 import com.qifun.statelessFuture.Future
+import com.qifun.qforce.bcp.BcpException.DataTooBig
 
 private[bcp] object BcpSession {
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
@@ -95,7 +96,7 @@ private[bcp] object BcpSession {
     def contains(id: Int): Boolean
     def allReceivedBelow(id: Int): Boolean
   }
-  
+
   private type HeartBeatRunnable = Runnable
 
   private[bcp] final class Stream(override protected val socket: AsynchronousSocketChannel)
@@ -103,7 +104,7 @@ private[bcp] object BcpSession {
 
     /**
      * For HeartBeatRunnable
-     */ 
+     */
     override final def run() {
       BcpIo.enqueue(this, HeartBeat)
       super.flush()
@@ -148,7 +149,7 @@ private[bcp] object BcpSession {
     /**
      * 已经发送但还没有收到对应的[[Acknowledge]]的数据
      */
-    val unconfirmedPack = Ref(Queue.empty[AcknowledgeRequired with ServerToClient])
+    val unconfirmedPack = Ref(Queue.empty[AcknowledgeRequired])
 
   }
   //
@@ -174,7 +175,7 @@ private[bcp] object BcpSession {
     val openConnections: Set[Connection] = Set.empty[Connection],
     val availableConnections: Set[Connection] = Set.empty[Connection])
 
-  final case class PacketQueue(length: Int = 0, queue: Queue[AcknowledgeRequired with ServerToClient] = Queue.empty)
+  final case class PacketQueue(length: Int = 0, queue: Queue[AcknowledgeRequired] = Queue.empty)
 
 }
 
@@ -265,7 +266,7 @@ trait BcpSession {
   /**
    * 要么立即发送，要么忽略
    */
-  private def trySend(newPack: ServerToClient)(implicit txn: InTxn) {
+  private def trySend(newPack: Packet)(implicit txn: InTxn) {
     sendingQueue() match {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
         def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) {
@@ -292,7 +293,7 @@ trait BcpSession {
   /**
    * 从所有可用连接中轮流发送
    */
-  private def enqueue(newPack: ServerToClient with AcknowledgeRequired)(implicit txn: InTxn) {
+  private def enqueue(newPack: AcknowledgeRequired)(implicit txn: InTxn) {
     sendingQueue.transform {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
         def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) = {
@@ -582,8 +583,7 @@ trait BcpSession {
     }
   }
 
-  private[bcp] final def addIncomingStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
-
+  private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
     if (connections.size >= MaxConnectionsPerSession) {
       stream.interrupt()
     }
@@ -605,6 +605,6 @@ trait BcpSession {
       logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
       stream.interrupt()
     }
-
   }
+  
 }

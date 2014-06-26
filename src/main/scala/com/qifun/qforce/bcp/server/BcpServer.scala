@@ -82,7 +82,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
             session
           }
         }
-        session.addIncomingStream(connectionId, stream)
+        session.addStream(connectionId, stream)
       }
     }
 
