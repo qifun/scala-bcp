@@ -7,6 +7,16 @@ import com.qifun.qforce.bcp.BcpSession
 import java.util.concurrent.Executor
 import scala.concurrent.stm.InTxn
 import com.qifun.statelessFuture.Future
+import com.qifun.qforce.bcp.Bcp._
+import scala.util.Random
+import com.qifun.qforce.bcp.BcpSession
+import com.qifun.qforce.bcp.BcpSession._
+import scala.util.control.Exception.Catcher
+import scala.PartialFunction
+import com.qifun.qforce.bcp.BcpIo
+import scala.reflect.classTag
+import scala.concurrent.stm.atomic
+import scala.concurrent.stm.Ref
 
 abstract class BcpClient extends BcpSession {
 
@@ -17,5 +27,24 @@ abstract class BcpClient extends BcpSession {
   override private[bcp] def internalExecutor: ScheduledExecutorService = executor
 
   override final private[bcp] def release()(implicit txn: InTxn) {}
+
+  def apply() {
+    start()
+  }
+
+  private val sessionId: Array[Byte] = Array[Byte](NumBytesSessionId)
+  private val connectionId = Ref(0)
+
+  private def start() {
+    Random.nextBytes(sessionId)
+    implicit def catcher: Catcher[Unit] = PartialFunction.empty
+    for (socket <- connect()) {
+      val stream = new Stream(socket)
+      atomic { implicit txn =>
+        BcpIo.sendHead(stream, sessionId, connectionId())
+        addStream(connectionId(), stream)
+      }
+    }
+  }
 
 }
