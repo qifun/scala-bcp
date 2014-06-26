@@ -131,7 +131,7 @@ private[bcp] object BcpIo {
     stream.read() match {
       case Data.HeadByte => {
         val length = receiveUnsignedVarint(stream).await
-        if (length > MaxDataByteNum) {
+        if (length > MaxDataSize) {
           throw new BcpException.DataTooBig
         }
         stream.available_=(length).await

@@ -113,11 +113,11 @@ object Bcp {
   final val NumBytesSessionId = 16
   
   /**
-   * 数据包超过大小超过 MaxDataByteNum 说明客户端乱发数据，应该断掉链接
+   * 数据包超过大小超过 MaxDataSize 说明客户端乱发数据，应该断掉链接
    * 
    * @group Constants
    */
-  final val MaxDataByteNum = 100
+  final val MaxDataSize = 100000
 
   /**
    * @group Protocols
