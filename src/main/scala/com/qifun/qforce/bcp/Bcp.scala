@@ -4,29 +4,29 @@ import java.nio.ByteBuffer
 
 /**
  * BCP协议相关的数据结构和常量
- * 
+ *
  * BCP（Brutal Control Protocol，残暴控制协议）是基于TCP实现的用户层传输协议。特性如下：
  *
  *  1. 基于连接
  *  1. 可靠，低延时
  *  1. 以数据包为单位，没有流
  *  1. 乱序数据包，不保证接收顺序与发送顺序一致
- * 
+ *
  * <h3>BCP vs. TCP</h3>
- * 
+ *
  * BCP和普通TCP功能相似，重新实现了TCP的包确认重发机制。
- * 
+ *
  * 当网络条件不好，丢包频繁，TCP重传间隔时间会变得很长，从而基本不可用。
  * 这种情况下，BCP会暴力杀死底层TCP连接，强制重建TCP连接，暴力重发数据，避免丢失数据并减少延时。
- * 
+ *
  * BCP和TCP都属于面向连接会话的协议。
  * 但另一方面，但BCP数据不是TCP那样的流，而以[[Packet]]为单位。
  * BCP协议不保证接收方收取[[Packet]]的顺序和发送方发出[[Packet]]的顺序一致。
  * 这是因为，一条BCP会话，可能会对应多达[[MaxConnectionsPerSession]]个底层TCP连接，
  * 而这几条底层TCP连接的延时可能并不相同。
- * 
+ *
  * <h3>BCP会话的一生</h3>
- * 
+ *
  *  1. 客户端随机生成[[NumBytesSessionId]]字节的会话ID。
  *  1. 客户端发起TCP连接。
  *  1. TCP连接成功建立后，客户端发送[[ConnectionHead]]，
@@ -179,7 +179,7 @@ object Bcp {
   /**
    * @group Protocols
    */
-  case class RetransmissionData(connectionId: Int, packId: Int, buffer: Seq[ByteBuffer])
+  final case class RetransmissionData(connectionId: Int, packId: Int, buffer: Seq[ByteBuffer])
     extends ServerToClient with ClientToServer with AcknowledgeRequired with Retransmission
 
   /**
@@ -212,7 +212,7 @@ object Bcp {
   /**
    * @group Protocols
    */
-  case class RetransmissionFinish(connectionId: Int, packId: Int)
+  final case class RetransmissionFinish(connectionId: Int, packId: Int)
     extends ServerToClient with ClientToServer with AcknowledgeRequired with Retransmission
 
   /**
