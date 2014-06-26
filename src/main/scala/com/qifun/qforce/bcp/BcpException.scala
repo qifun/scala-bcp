@@ -15,5 +15,8 @@ object BcpException {
 
   class VarintTooBig(message: String = "The varint is too big to read!", cause: Throwable = null)
     extends BcpException(message, cause)
+  
+  class DataTooBig(message: String = "The data received was too big!", cause: Throwable = null)
+    extends BcpException(message, cause)
 
 }
