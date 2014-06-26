@@ -44,9 +44,9 @@ object BcpServer {
 
     private[BcpServer] final var bcpServer: BcpServer[_ >: this.type] = null
 
-    override final private[bcp] def internalExecutor = bcpServer.executor
+    override private[bcp] final def internalExecutor = bcpServer.executor
 
-    override final private[bcp] def release()(implicit txn: InTxn) {
+    override private[bcp] final def release()(implicit txn: InTxn) {
       val removedSessionOption = bcpServer.sessions.remove(sessionId)
       assert(removedSessionOption == Some(Session.this))
     }
