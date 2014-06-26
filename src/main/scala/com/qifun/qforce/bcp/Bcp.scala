@@ -86,7 +86,7 @@ object Bcp {
    *
    * @group Constants
    */
-  final val HeartBeatDelay: FiniteDuration = 3.seconds
+  final val HeartBeatDelay = 3.seconds
 
   /**
    * 多长时间收不到任何包，就杀掉TCP连接。
