@@ -152,24 +152,6 @@ private[bcp] object BcpSession {
     val unconfirmedPack = Ref(Queue.empty[AcknowledgeRequired])
 
   }
-  //
-  //  private sealed trait ShutDownInputState
-  //  private object ShutDownInputState {
-  //    final case object NotShutDownInput extends ShutDownInputState
-  //    final case object InputShutedDown extends ShutDownInputState
-  //  }
-  //  private sealed trait ShutDownOutputState
-  //  private object ShutDownOutputState {
-  //    final case object NotShutDownOutput extends ShutDownOutputState
-  //    final case object OutputShutedDown extends ShutDownOutputState
-  //
-  //    /**
-  //     * 等待所有已发的数据都收到[[Acknowledge]]
-  //     *
-  //     * @param numAcknowledgeToReceive 还有多少个[[Acknowledge]]要收。
-  //     */
-  //    final case class ShutDownOutputWaiting(numAcknowledgeToReceive: Int) extends ShutDownOutputState
-  //  }
 
   private final case class SendingConnectionQueue(
     val openConnections: Set[Connection] = Set.empty[Connection],
