@@ -6,10 +6,11 @@ import java.nio.channels.AsynchronousSocketChannel
 import com.qifun.qforce.bcp.BcpSession
 import java.util.concurrent.Executor
 import scala.concurrent.stm.InTxn
+import com.qifun.statelessFuture.Future
 
 abstract class BcpClient extends BcpSession {
 
-  protected def connect(): AsynchronousSocketChannel
+  protected def connect(): Future[AsynchronousSocketChannel]
 
   protected def executor: ScheduledExecutorService
 
