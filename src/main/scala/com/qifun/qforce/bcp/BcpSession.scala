@@ -95,10 +95,15 @@ private[bcp] object BcpSession {
     def contains(id: Int): Boolean
     def allReceivedBelow(id: Int): Boolean
   }
+  
+  private type HeartBeatRunnable = Runnable
 
   private[bcp] final class Stream(override protected final val socket: AsynchronousSocketChannel)
-    extends SocketInputStream with SocketWritingQueue with Runnable {
+    extends SocketInputStream with SocketWritingQueue with HeartBeatRunnable {
 
+    /**
+     * For HeartBeatRunnable
+     */ 
     override final def run() {
       BcpIo.enqueue(this, HeartBeat)
       super.flush()
