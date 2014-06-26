@@ -22,6 +22,11 @@ private[bcp] object BcpSession {
 
   private class IdSetIsFullException extends Exception
 
+  /**
+   * 判断`test`是否在[`low`,`high`)区间。
+   *
+   * 本函数考虑了整数溢出问题。
+   */
   private def between(low: Int, high: Int, test: Int): Boolean = {
     if (low < high) {
       test >= low && test < high
