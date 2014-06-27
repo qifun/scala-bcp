@@ -111,6 +111,7 @@ private[bcp] object BcpSession {
      * For HeartBeatRunnable
      */
     override final def run() {
+      logger.finest("sending hartbeat")
       BcpIo.enqueue(this, HeartBeat)
       super.flush()
     }
@@ -368,7 +369,6 @@ trait BcpSession {
   }
 
   private def finishReceived(
-
     connectionId: Int,
     connection: Connection,
     packId: Int)(implicit txn: InTxn) {
@@ -386,13 +386,13 @@ trait BcpSession {
   }
 
   private def startReceive(
-
     connectionId: Int,
     connection: Connection,
     stream: Stream) {
     val receiveFuture = Future {
       BcpIo.receive(stream).await match {
         case HeartBeat => {
+          logger.finest("received heart beat")
           startReceive(connectionId, connection, stream)
         }
         case Data(buffer) => {

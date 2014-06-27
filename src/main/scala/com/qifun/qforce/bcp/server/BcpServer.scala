@@ -30,6 +30,7 @@ import com.qifun.qforce.bcp.BcpIo
 import com.qifun.qforce.bcp.BcpException
 import com.qifun.qforce.bcp.BcpSession
 import com.qifun.qforce.bcp.BcpSession._
+import com.dongxiguo.fastring.Fastring.Implicits._
 
 object BcpServer {
 
@@ -57,6 +58,7 @@ object BcpServer {
  * 处理BCP协议的服务器。
  */
 abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
+  import BcpServer.logger
   import BcpServer.appender
   import BcpServer.formater
 
@@ -64,10 +66,12 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
 
   private val sessions = TMap.empty[BoxedSessionId, Session]
 
-  protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
+  protected[bcp] final def addIncomingSocket(socket: AsynchronousSocketChannel) {
+    logger.fine(fast"bcp server add incoming socket: ${socket}")
     val stream = new Stream(socket)
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
     for (ConnectionHead(sessionId, connectionId) <- BcpIo.receiveHead(stream)) {
+      logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
           case None => {
@@ -85,7 +89,6 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
         session.addStream(connectionId, stream)
       }
     }
-
   }
 
 }
