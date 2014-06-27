@@ -159,7 +159,7 @@ object Bcp {
   /**
    * @group Protocols
    */
-  final case class Data(buffer: Seq[ByteBuffer])
+  final case class Data(buffers: Seq[ByteBuffer])
     extends ServerToClient with ClientToServer with AcknowledgeRequired
 
   /**
@@ -179,7 +179,7 @@ object Bcp {
   /**
    * @group Protocols
    */
-  final case class RetransmissionData(connectionId: Int, packId: Int, buffer: Seq[ByteBuffer])
+  final case class RetransmissionData(connectionId: Int, packId: Int, buffers: Seq[ByteBuffer])
     extends ServerToClient with ClientToServer with AcknowledgeRequired with Retransmission
 
   /**
