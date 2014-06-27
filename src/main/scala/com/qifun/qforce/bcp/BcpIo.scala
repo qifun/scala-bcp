@@ -184,8 +184,8 @@ private[bcp] object BcpIo {
     sessionId
   }
 
-  final def sendHead(stream: SocketWritingQueue, sessionId: Array[Byte], connectionId: Int) = {
-    val headBuffer = ByteBuffer.allocate(20)
+  final def enqueueHead(stream: SocketWritingQueue, sessionId: Array[Byte], connectionId: Int) = {
+    val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 5)
     headBuffer.put(sessionId)
     writeUnsignedVarint(headBuffer, connectionId)
     headBuffer.flip()

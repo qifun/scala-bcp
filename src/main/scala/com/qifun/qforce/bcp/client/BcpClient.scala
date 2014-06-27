@@ -28,10 +28,6 @@ abstract class BcpClient extends BcpSession {
 
   override final private[bcp] def release()(implicit txn: InTxn) {}
 
-  def apply() {
-    start()
-  }
-
   private val sessionId: Array[Byte] = Array[Byte](NumBytesSessionId)
   private val connectionId = Ref(0)
 
@@ -41,10 +37,11 @@ abstract class BcpClient extends BcpSession {
     for (socket <- connect()) {
       val stream = new Stream(socket)
       atomic { implicit txn =>
-        BcpIo.sendHead(stream, sessionId, connectionId())
+        BcpIo.enqueueHead(stream, sessionId, connectionId())
         addStream(connectionId(), stream)
       }
     }
   }
 
+  start()
 }
