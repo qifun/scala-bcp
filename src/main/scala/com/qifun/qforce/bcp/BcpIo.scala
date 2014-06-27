@@ -75,7 +75,7 @@ private[bcp] object BcpIo {
     headBuffer.put(RetransmissionData.HeadByte)
     writeUnsignedVarint(headBuffer, pack.connectionId)
     writeUnsignedVarint(headBuffer, pack.packId)
-    writeUnsignedVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.buffer.view.map(_.remaining).sum)
     headBuffer.flip()
     queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
@@ -83,7 +83,7 @@ private[bcp] object BcpIo {
   final def enqueue(queue: SocketWritingQueue, pack: Data) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(Data.HeadByte)
-    writeUnsignedVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.buffer.view.map(_.remaining).sum)
     headBuffer.flip()
     queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
