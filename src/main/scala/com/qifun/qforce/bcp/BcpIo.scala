@@ -54,7 +54,7 @@ private[bcp] object BcpIo {
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Renew.type) {
-    queue.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](Renew.HeadByte)))
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Finish.type) {
