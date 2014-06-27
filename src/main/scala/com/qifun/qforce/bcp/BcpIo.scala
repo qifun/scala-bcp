@@ -6,8 +6,8 @@ import java.nio.ByteBuffer
 import scala.annotation.tailrec
 import com.qifun.qforce.bcp.Bcp._
 import com.qifun.statelessFuture.Future
-import com.qifun.statelessFuture.io.SocketInputStream
-import com.qifun.statelessFuture.io.SocketWritingQueue
+import com.qifun.statelessFuture.util.io.SocketInputStream
+import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import java.io.EOFException
 import java.io.IOException
 import scala.collection.mutable.ArrayBuffer

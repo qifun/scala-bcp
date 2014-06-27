@@ -20,8 +20,8 @@ import scala.reflect.ClassTag
 import scala.reflect.classTag
 import scala.util.control.NoStackTrace
 import scala.util.control.Exception.Catcher
-import com.qifun.statelessFuture.io.SocketInputStream
-import com.qifun.statelessFuture.io.SocketWritingQueue
+import com.qifun.statelessFuture.util.io.SocketInputStream
+import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import com.qifun.statelessFuture.Future
 import scala.collection.immutable.Queue
 import com.qifun.qforce.bcp.Bcp._

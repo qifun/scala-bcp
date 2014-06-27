@@ -5,8 +5,8 @@ import java.nio.ByteBuffer
 import scala.concurrent.stm._
 import scala.annotation.tailrec
 import java.nio.channels.AsynchronousSocketChannel
-import com.qifun.statelessFuture.io.SocketInputStream
-import com.qifun.statelessFuture.io.SocketWritingQueue
+import com.qifun.statelessFuture.util.io.SocketInputStream
+import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import Bcp._
 import java.util.concurrent.ScheduledFuture
 import scala.collection.mutable.WrappedArray
