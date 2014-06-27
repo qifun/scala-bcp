@@ -6,8 +6,8 @@ import java.nio.ByteBuffer
 import scala.annotation.tailrec
 import com.qifun.qforce.bcp.Bcp._
 import com.qifun.statelessFuture.Future
-import com.qifun.statelessFuture.io.SocketInputStream
-import com.qifun.statelessFuture.io.SocketWritingQueue
+import com.qifun.statelessFuture.util.io.SocketInputStream
+import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import java.io.EOFException
 import java.io.IOException
 import scala.collection.mutable.ArrayBuffer
@@ -54,7 +54,7 @@ private[bcp] object BcpIo {
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Renew.type) {
-    queue.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
+    queue.enqueue(ByteBuffer.wrap(Array[Byte](Renew.HeadByte)))
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Finish.type) {
@@ -75,7 +75,7 @@ private[bcp] object BcpIo {
     headBuffer.put(RetransmissionData.HeadByte)
     writeUnsignedVarint(headBuffer, pack.connectionId)
     writeUnsignedVarint(headBuffer, pack.packId)
-    writeUnsignedVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.buffer.view.map(_.remaining).sum)
     headBuffer.flip()
     queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
@@ -83,7 +83,7 @@ private[bcp] object BcpIo {
   final def enqueue(queue: SocketWritingQueue, pack: Data) {
     val headBuffer = ByteBuffer.allocate(20)
     headBuffer.put(Data.HeadByte)
-    writeUnsignedVarint(headBuffer, pack.buffer.length)
+    writeUnsignedVarint(headBuffer, pack.buffer.view.map(_.remaining).sum)
     headBuffer.flip()
     queue.enqueue((headBuffer +: pack.buffer.view): _*)
   }
