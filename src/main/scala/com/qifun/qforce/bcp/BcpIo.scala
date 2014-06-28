@@ -14,7 +14,7 @@ import scala.collection.mutable.ArrayBuffer
 
 private[bcp] object BcpIo {
 
-  final def receiveUnsignedVarint(stream: SocketInputStream): Future[Int] = {
+  private final def receiveUnsignedVarint(stream: SocketInputStream): Future[Int] = {
     def receiveRestBytes(result: Int, i: Int): Future[Int] = Future[Int] {
       (stream.available_=(1)).await
       stream.read() match {
@@ -39,7 +39,7 @@ private[bcp] object BcpIo {
   }
 
   @tailrec
-  final def writeUnsignedVarint(buffer: ByteBuffer, value: Int) {
+  private final def writeUnsignedVarint(buffer: ByteBuffer, value: Int) {
     if ((value & 0xFFFFFF80) == 0) {
       buffer.put(value.toByte)
       return ;
@@ -156,7 +156,9 @@ private[bcp] object BcpIo {
         val packId = receiveUnsignedVarint(stream).await
         RetransmissionFinish(connectionId, packId)
       }
-      case Acknowledge.HeadByte => Acknowledge
+      case Acknowledge.HeadByte => {
+        Acknowledge
+      }
       case Renew.HeadByte => {
         Renew
       }
@@ -187,7 +189,8 @@ private[bcp] object BcpIo {
     sessionId
   }
 
-  final def enqueueHead(stream: SocketWritingQueue, sessionId: Array[Byte], connectionId: Int) = {
+  final def enqueueHead(stream: SocketWritingQueue, head: ConnectionHead) = {
+    val ConnectionHead(sessionId, connectionId) = head
     val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 5)
     headBuffer.put(sessionId)
     writeUnsignedVarint(headBuffer, connectionId)

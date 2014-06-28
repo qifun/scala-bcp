@@ -53,7 +53,7 @@ abstract class BcpClient extends BcpSession {
         val connectionId = nextConnectionId()
         nextConnectionId() = connectionId + 1
         Txn.afterCommit(_ => {
-          BcpIo.enqueueHead(stream, sessionId, connectionId)
+          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
           stream.flush()
           logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
         })
