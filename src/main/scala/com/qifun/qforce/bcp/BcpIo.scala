@@ -143,6 +143,9 @@ private[bcp] object BcpIo {
         val connectionId = receiveUnsignedVarint(stream).await
         val packId = receiveUnsignedVarint(stream).await
         val length = receiveUnsignedVarint(stream).await
+        if (length > MaxDataSize) {
+          throw new BcpException.DataTooBig
+        }
         stream.available_=(length).await
         val buffer = new ArrayBuffer[ByteBuffer]
         stream.move(buffer, length)
