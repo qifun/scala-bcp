@@ -87,7 +87,7 @@ private[bcp] object BcpSession {
 
   private type HeartBeatRunnable = Runnable
 
-  private[bcp] final class Stream(override protected val socket: AsynchronousSocketChannel)
+  private[bcp] class Stream(override protected val socket: AsynchronousSocketChannel)
     extends SocketInputStream with SocketWritingQueue with HeartBeatRunnable {
 
     /**
@@ -110,7 +110,7 @@ private[bcp] object BcpSession {
 
   private[bcp]type BoxedSessionId = WrappedArray[Byte]
 
-  private final class Connection {
+  private[bcp] class Connection[Stream <: BcpSession.Stream] {
 
     val stream = Ref.make[Stream]
 
@@ -142,17 +142,26 @@ private[bcp] object BcpSession {
 
   }
 
-  private final case class SendingConnectionQueue(
-    val openConnections: Set[Connection] = Set.empty[Connection],
-    val availableConnections: Set[Connection] = Set.empty[Connection])
+  private final case class SendingConnectionQueue[C <: Connection[_]](
+    val openConnections: Set[C] = Set.empty[C],
+    val availableConnections: Set[C] = Set.empty[C])
 
   final case class PacketQueue(length: Int = 0, queue: Queue[AcknowledgeRequired] = Queue.empty)
 
 }
 
-trait BcpSession {
+trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.Connection[Stream]] {
 
-  import BcpSession._
+  import BcpSession.SendingConnectionQueue
+  import BcpSession.PacketQueue
+  import BcpSession.logger
+  import BcpSession.appender
+  import BcpSession.formater
+  import BcpSession.between
+
+  private type SendingConnectionQueue = BcpSession.SendingConnectionQueue[Connection]
+
+  private[bcp] def newConnection: Connection
 
   private[bcp] def internalExecutor: ScheduledExecutorService
 
@@ -401,9 +410,9 @@ trait BcpSession {
                 val lastConnectionId = this.lastConnectionId()
                 if (between(lastConnectionId, lastConnectionId + MaxConnectionsPerSession, dataConnectionId)) {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
-                  val newConnection = new Connection
-                  connections(dataConnectionId) = newConnection
-                  dataReceived(dataConnectionId, newConnection, packId, data)
+                  val c = newConnection
+                  connections(dataConnectionId) = c
+                  dataReceived(dataConnectionId, c, packId, data)
                 } else {
                   // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                 }
@@ -451,9 +460,9 @@ trait BcpSession {
                 val lastConnectionId = this.lastConnectionId()
                 if (between(lastConnectionId, lastConnectionId + MaxConnectionsPerSession, connectionId)) {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
-                  val newConnection = new Connection
-                  connections(finishConnectionId) = newConnection
-                  finishReceived(finishConnectionId, newConnection, packId)
+                  val c = newConnection
+                  connections(finishConnectionId) = c
+                  finishReceived(finishConnectionId, c, packId)
                 } else {
                   // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                 }
@@ -557,7 +566,7 @@ trait BcpSession {
     if (connections.size >= MaxConnectionsPerSession) {
       stream.interrupt()
     }
-    val connection = connections.getOrElseUpdate(connectionId, new Connection)
+    val connection = connections.getOrElseUpdate(connectionId, newConnection)
     lastConnectionId() = connectionId
     if (connection.stream() == null) {
       connection.stream() = stream

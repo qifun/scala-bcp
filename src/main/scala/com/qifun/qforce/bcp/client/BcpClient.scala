@@ -24,11 +24,21 @@ object BcpClient {
 
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
+  private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
+    // TODO: 客户端专有的数据结构，比如Timer
+
+  }
+
+  private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
+  }
+
 }
 
-abstract class BcpClient extends BcpSession {
+abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
 
   import BcpClient.{ logger, formater, appender }
+
+  override private[bcp] final def newConnection = new BcpClient.Connection
 
   protected def connect(): Future[AsynchronousSocketChannel]
 
@@ -48,7 +58,7 @@ abstract class BcpClient extends BcpSession {
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
     for (socket <- connect()) {
       logger.fine(fast"bcp client connect server success, socket: ${socket}")
-      val stream = new Stream(socket)
+      val stream = new BcpClient.Stream(socket)
       atomic { implicit txn =>
         val connectionId = nextConnectionId()
         nextConnectionId() = connectionId + 1

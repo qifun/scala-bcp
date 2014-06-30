@@ -36,7 +36,18 @@ object BcpServer {
 
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
-  trait Session extends BcpSession {
+  private[BcpServer] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
+    // TODO: 服务端专有的数据结构
+  }
+
+  private[BcpServer] final class Connection extends BcpSession.Connection[Stream] {
+    // TODO: 服务端专有的数据结构
+  }
+
+  trait Session extends BcpSession[Stream, Connection] {
+
+    override private[bcp] final def newConnection = new Connection
+
     private[BcpServer] final def internalOpen() {
       open()
     }
@@ -68,7 +79,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
 
   protected[bcp] final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
-    val stream = new Stream(socket)
+    val stream = new BcpServer.Stream(socket)
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
     for (ConnectionHead(sessionId, connectionId) <- BcpIo.receiveHead(stream)) {
       logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
