@@ -138,7 +138,7 @@ private[bcp] object BcpSession {
     /**
      * 已经发送但还没有收到对应的[[Acknowledge]]的数据
      */
-    val unconfirmedPack = Ref(Queue.empty[AcknowledgeRequired])
+    val unconfirmedPackets = Ref(Queue.empty[AcknowledgeRequired])
 
   }
 
@@ -191,7 +191,7 @@ trait BcpSession {
    * 当前连接，包括尚未关闭的连接和已经关闭但数据尚未全部确认的连接。
    *
    * @note 只有[[Connection.isFinishReceived]]和[[Connection.isFinishSent]]都为`true`，
-   * 且[[Connection.unconfirmedPack]]为空，
+   * 且[[Connection.unconfirmedPackets]]为空，
    * 才会把[[Connection]]从[[connections]]中移除。
    */
   private val connections = TMap.empty[Int, Connection]
@@ -209,7 +209,7 @@ trait BcpSession {
         val stream = connection.stream()
         for (pack <- packQueue) {
           Txn.afterCommit(_ => BcpIo.enqueue(stream, pack))
-          connection.unconfirmedPack.transform(_.enqueue(pack))
+          connection.unconfirmedPackets.transform(_.enqueue(pack))
         }
         resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
@@ -275,7 +275,7 @@ trait BcpSession {
             BcpIo.enqueue(stream, newPack)
             stream.flush()
           }
-          connection.unconfirmedPack.transform(_.enqueue(newPack))
+          connection.unconfirmedPackets.transform(_.enqueue(newPack))
           resetHeartBeatTimer(stream)
           Right(SendingConnectionQueue(openConnections, rest))
         }
@@ -299,7 +299,7 @@ trait BcpSession {
     val isConnectionFinish =
       connection.isFinishSent() &&
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
-        connection.unconfirmedPack().isEmpty
+        connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
       removeOpenConnection(connection)
       connections.remove(connectionId)
@@ -415,8 +415,8 @@ trait BcpSession {
         }
         case Acknowledge => {
           atomic { implicit txn =>
-            val (originalPack, queue) = connection.unconfirmedPack().dequeue
-            connection.unconfirmedPack() = queue
+            val (originalPack, queue) = connection.unconfirmedPackets().dequeue
+            connection.unconfirmedPackets() = queue
             originalPack match {
               case Data(buffer) => {
                 connection.numAcknowledgeReceivedForData() += 1
@@ -503,7 +503,7 @@ trait BcpSession {
           val heartBeatTimer = stream.heartBeatTimer()
           stream.heartBeatTimer() = null
           Txn.afterCommit(_ => heartBeatTimer.cancel(false))
-          connection.unconfirmedPack().foldLeft(connection.numAcknowledgeReceivedForData()) {
+          connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
             case (packId, Data(buffer)) => {
               enqueue(RetransmissionData(connectionId, packId, buffer))
               packId + 1
@@ -518,7 +518,7 @@ trait BcpSession {
               nextPackId
             }
           }
-          connection.unconfirmedPack() = Queue.empty
+          connection.unconfirmedPackets() = Queue.empty
           checkConnectionFinish(connectionId, connection)
         }
       }
