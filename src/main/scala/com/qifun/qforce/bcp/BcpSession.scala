@@ -39,67 +39,50 @@ private[bcp] object BcpSession {
 
   private object IdSet {
 
-    object NonEmpty {
-      @tailrec
-      private def compat(lowId: Int, highId: Int, ids: Set[Int]): NonEmpty = {
-        if (ids(lowId)) {
-          compat(lowId + 1, highId, ids - lowId)
-        } else {
-          new NonEmpty(lowId, highId, ids)
-        }
+    @tailrec
+    private def compat(lowId: Int, highId: Int, ids: Set[Int]): IdSet = {
+      if (ids(lowId)) {
+        compat(lowId + 1, highId, ids - lowId)
+      } else {
+        new IdSet(lowId, highId, ids)
       }
     }
 
-    final case class NonEmpty(lowId: Int, highId: Int, ids: Set[Int]) extends IdSet {
-      import NonEmpty._
+    def empty = new IdSet(0, 0, Set.empty)
 
-      @throws(classOf[IdSetIsFullException])
-      override final def +(id: Int) = {
-        if (between(lowId, highId, id)) {
-          compat(lowId, highId, ids + id)
-        } else if (between(highId, highId + 1024, id)) {
-          if (between(lowId, lowId + 2048, id)) {
-            throw new IdSetIsFullException
-          } else {
-            new NonEmpty(lowId, id, ids + id)
-          }
-        } else {
-          this
-        }
-      }
-
-      override final def contains(id: Int) = {
-        if (between(lowId, highId, id)) {
-          ids.contains(id)
-        } else if (between(highId, highId + 1024, id)) {
-          false
-        } else {
-          true
-        }
-      }
-
-      override final def allReceivedBelow(id: Int): Boolean = {
-        ids.isEmpty && lowId == id && highId == id
-      }
-
-    }
-
-    case object Empty extends IdSet {
-
-      @throws(classOf[IdSetIsFullException])
-      override final def +(id: Int) = new NonEmpty(id + 1, id + 1, Set.empty[Int])
-
-      override final def contains(id: Int) = false
-
-      override final def allReceivedBelow(id: Int) = true
-
-    }
   }
 
-  private sealed abstract class IdSet {
-    def +(id: Int): IdSet
-    def contains(id: Int): Boolean
-    def allReceivedBelow(id: Int): Boolean
+  final case class IdSet(lowId: Int, highId: Int, ids: Set[Int]) {
+
+    @throws(classOf[IdSetIsFullException])
+    final def +(id: Int) = {
+      if (between(lowId, highId, id)) {
+        IdSet.compat(lowId, highId, ids + id)
+      } else if (between(highId, highId + 1024, id)) {
+        if (between(lowId, lowId + 2048, id)) {
+          throw new IdSetIsFullException
+        } else {
+          IdSet.compat(lowId, id + 1, ids + id)
+        }
+      } else {
+        this
+      }
+    }
+
+    final def isReceived(id: Int) = {
+      if (between(lowId, highId, id)) {
+        ids.contains(id)
+      } else if (between(highId, highId + 1024, id)) {
+        false
+      } else {
+        true
+      }
+    }
+
+    final def allReceivedBelow(id: Int): Boolean = {
+      ids.isEmpty && lowId == id && highId == id
+    }
+
   }
 
   private type HeartBeatRunnable = Runnable
@@ -140,7 +123,7 @@ private[bcp] object BcpSession {
      */
     val numDataReceived = Ref(0)
 
-    val receiveIdSet = Ref[IdSet](IdSet.Empty)
+    val receiveIdSet = Ref[IdSet](IdSet.empty)
 
     /**
      * 发送了多少个[[Data]]
@@ -338,7 +321,7 @@ trait BcpSession {
     buffer: Seq[ByteBuffer])(
       implicit txn: InTxn) {
     val idSet = connection.receiveIdSet()
-    if (idSet.contains(packId)) {
+    if (idSet.isReceived(packId)) {
       // 已经收过了，直接忽略。
     } else {
       Txn.afterCommit(_ => received(buffer: _*))
@@ -593,5 +576,5 @@ trait BcpSession {
       stream.interrupt()
     }
   }
-  
+
 }
