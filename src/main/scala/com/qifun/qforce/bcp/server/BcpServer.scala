@@ -38,10 +38,19 @@ object BcpServer {
 
   private[BcpServer] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // TODO: 服务端专有的数据结构
+
   }
 
   private[BcpServer] final class Connection extends BcpSession.Connection[Stream] {
-    // TODO: 服务端专有的数据结构
+
+    override private[bcp] final def busy: Unit = {
+      // 什么都不做
+    }
+
+    override private[bcp] final def idle: Unit = {
+      // 什么都不做
+    }
+
   }
 
   trait Session extends BcpSession[Stream, Connection] {

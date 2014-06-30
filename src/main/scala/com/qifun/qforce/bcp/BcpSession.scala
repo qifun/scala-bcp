@@ -98,6 +98,7 @@ private[bcp] object BcpSession {
       BcpIo.enqueue(this, HeartBeat)
       super.flush()
     }
+
     val heartBeatTimer = Ref.make[HeartBeatTimer]
 
     override protected final def readingTimeout = ReadingTimeout
@@ -110,7 +111,13 @@ private[bcp] object BcpSession {
 
   private[bcp]type BoxedSessionId = WrappedArray[Byte]
 
-  private[bcp] class Connection[Stream <: BcpSession.Stream] {
+  private[bcp] abstract class Connection[Stream <: BcpSession.Stream] {
+
+    /** 当有数据发出时触发本事件 */
+    private[bcp] def busy: Unit
+
+    /** 当所有的数据都收到[[Bcp.Acknowledge]]时触发本事件 */
+    private[bcp] def idle: Unit
 
     val stream = Ref.make[Stream]
 
