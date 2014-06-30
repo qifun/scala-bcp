@@ -201,9 +201,9 @@ trait BcpSession {
   }
 
   private def addOpenConnection(connection: Connection)(implicit txn: InTxn) {
-    sendingQueue.transform {
+    sendingQueue() match {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-        Right(SendingConnectionQueue(openConnections + connection, availableConnections + connection))
+        sendingQueue() = Right(SendingConnectionQueue(openConnections + connection, availableConnections + connection))
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
         val stream = connection.stream()
@@ -214,7 +214,7 @@ trait BcpSession {
         resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
         Txn.afterCommit(_ => available())
-        Right(SendingConnectionQueue(Set(connection), Set(connection)))
+        sendingQueue() = Right(SendingConnectionQueue(Set(connection), Set(connection)))
       }
     }
   }
@@ -265,7 +265,7 @@ trait BcpSession {
    * 从所有可用连接中轮流发送
    */
   private def enqueue(newPack: AcknowledgeRequired)(implicit txn: InTxn) {
-    sendingQueue.transform {
+    sendingQueue() match {
       case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
         def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) = {
           val (first, rest) = availableConnections.splitAt(1)
@@ -279,7 +279,7 @@ trait BcpSession {
           resetHeartBeatTimer(stream)
           Right(SendingConnectionQueue(openConnections, rest))
         }
-        if (availableConnections.isEmpty) {
+        sendingQueue() = if (availableConnections.isEmpty) {
           consume(openConnections, openConnections)
         } else {
           consume(openConnections, availableConnections)
@@ -289,7 +289,7 @@ trait BcpSession {
         if (queueLength >= MaxOfflinePack) {
           throw new BcpException.SendingQueueIsFull
         } else {
-          Left(PacketQueue(queueLength + 1, packQueue.enqueue(newPack)))
+          sendingQueue() = Left(PacketQueue(queueLength + 1, packQueue.enqueue(newPack)))
         }
       }
     }
