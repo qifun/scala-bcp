@@ -43,11 +43,11 @@ object BcpServer {
 
   private[BcpServer] final class Connection extends BcpSession.Connection[Stream] {
 
-    override private[bcp] final def busy: Unit = {
+    override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
       // 什么都不做
     }
 
-    override private[bcp] final def idle: Unit = {
+    override private[bcp] final def idle()(implicit txn: InTxn): Unit = {
       // 什么都不做
     }
 

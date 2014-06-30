@@ -114,10 +114,10 @@ private[bcp] object BcpSession {
   private[bcp] abstract class Connection[Stream <: BcpSession.Stream] {
 
     /** 当有数据发出时触发本事件 */
-    private[bcp] def busy: Unit
+    private[bcp] def busy()(implicit txn: InTxn): Unit
 
     /** 当所有的数据都收到[[Bcp.Acknowledge]]时触发本事件 */
-    private[bcp] def idle: Unit
+    private[bcp] def idle()(implicit txn: InTxn): Unit
 
     val stream = Ref.make[Stream]
 

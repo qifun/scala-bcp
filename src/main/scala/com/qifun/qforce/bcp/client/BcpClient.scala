@@ -31,11 +31,11 @@ object BcpClient {
 
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
 
-    override private[bcp] final def busy: Unit = {
+    override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
       ??? // TODO: 设置timer，建立新连接 
     }
 
-    override private[bcp] final def idle: Unit = {
+    override private[bcp] final def idle()(implicit txn: InTxn): Unit = {
       ??? // TODO: 设置timer，关闭多余的连接
     }
 
