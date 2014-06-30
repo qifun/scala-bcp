@@ -26,12 +26,15 @@ object BcpClient {
 
   private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // TODO: 客户端专有的数据结构，比如Timer
-
+    val xxx: Int = 1
   }
 
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
 
     override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
+      atomic { implicit txn =>
+        this.stream().xxx
+      }
       ??? // TODO: 设置timer，建立新连接 
     }
 
@@ -53,9 +56,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   protected def executor: ScheduledExecutorService
 
-  override private[bcp] def internalExecutor: ScheduledExecutorService = executor
+  override private[bcp] final def internalExecutor: ScheduledExecutorService = executor
 
-  override final private[bcp] def release()(implicit txn: InTxn) {}
+  override private[bcp] final def release()(implicit txn: InTxn) {}
 
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
