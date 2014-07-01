@@ -18,6 +18,7 @@ import com.qifun.statelessFuture.Future
 import com.qifun.qforce.bcp.BcpException.DataTooBig
 
 private[bcp] object BcpSession {
+
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
   private class IdSetIsFullException extends Exception
@@ -233,8 +234,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
         sendingConnectionQueue.get(AllConfirmed) match {
-          case Some(connections) =>
-            sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> (connections + connection)))
+          case Some(openConnections) =>
+            sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> (openConnections + connection)))
           case None =>
             sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> Set(connection)))
         }
@@ -257,18 +258,17 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) =>
         sendingConnectionQueue find { _._2 exists { _ == connection } } match {
-          case Some((key, connections)) if connections.size == 1 =>
-            val newConnections = connections - connection
-            val newSendingConnctionQueue = sendingConnectionQueue - key
+          case Some((time, openConnections)) if openConnections.size == 1 =>
+            val newSendingConnctionQueue = sendingConnectionQueue - time
             if (newSendingConnctionQueue.size == 0) {
               sendingQueue() = Left(PacketQueue())
               Txn.afterCommit(_ => unavailable())
             } else {
               sendingQueue() = Right(newSendingConnctionQueue)
             }
-          case Some((key, connections)) =>
-            val newConnections = connections - connection
-            sendingQueue() = Right(sendingConnectionQueue + (key -> newConnections))
+          case Some((time, openConnections)) =>
+            val newOpenConnections = openConnections - connection
+            sendingQueue() = Right(sendingConnectionQueue + (time -> newOpenConnections))
         }
       case left: Left[_, _] =>
     }
@@ -280,18 +280,19 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def trySend(newPack: Packet)(implicit txn: InTxn) {
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
-        val connections = sendingConnectionQueue.head._2
-        val connection = connections.head
+        val (time, openConnections) = sendingConnectionQueue.head
+        val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
+        val connection = firstOpenConnection.head
         val stream = connection.stream()
         Txn.afterCommit { _ =>
           BcpIo.enqueue(stream, newPack)
           stream.flush()
         }
         resetHeartBeatTimer(stream)
-        if (connections.tail.isEmpty) {
-          sendingConnectionQueue + (System.currentTimeMillis -> connection)
+        if (restOpenConections.isEmpty) {
+          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
         } else {
-          sendingConnectionQueue + (sendingConnectionQueue.head._1 -> connections.tail) + (System.currentTimeMillis -> connection)
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
         }
       }
       case left: Left[_, _] =>
@@ -304,8 +305,9 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def enqueue(newPack: AcknowledgeRequired)(implicit txn: InTxn) {
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
-        val connections = sendingConnectionQueue.head._2
-        val connection = connections.head
+        val (time, openConnections) = sendingConnectionQueue.head
+        val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
+        val connection = firstOpenConnection.head
         val stream = connection.stream()
         Txn.afterCommit { _ =>
           BcpIo.enqueue(stream, newPack)
@@ -313,10 +315,10 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         }
         connection.unconfirmedPackets.transform(_.enqueue(newPack))
         resetHeartBeatTimer(stream)
-        if (connections.tail.isEmpty) {
-          sendingConnectionQueue + (System.currentTimeMillis -> connection)
+        if (restOpenConections.isEmpty) {
+          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
         } else {
-          sendingConnectionQueue + (sendingConnectionQueue.head._1 -> connections.tail) + (System.currentTimeMillis -> connection)
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
         }
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
@@ -369,7 +371,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     release()
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
-        for (connection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())( _ ++ _ )) {
+        for (connection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())(_ ++ _)) {
           val stream = connection.stream()
           connection.stream() = null
           assert(stream != null)
@@ -506,7 +508,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           atomic { implicit txn =>
             sendingQueue() match {
               case Right(sendingConnectionQueue) => {
-                for (originalConnection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())( _ ++ _ )) {
+                for (originalConnection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())(_ ++ _)) {
                   if (originalConnection != connection) {
                     val stream = originalConnection.stream()
                     stream.interrupt()
