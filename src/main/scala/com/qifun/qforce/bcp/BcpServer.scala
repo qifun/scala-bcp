@@ -83,7 +83,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
 
   private val sessions = TMap.empty[BoxedSessionId, Session]
 
-  protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
+  protected[bcp] final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
     val stream = new BcpServer.Stream(socket)
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
