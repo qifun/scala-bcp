@@ -18,6 +18,7 @@ import com.qifun.statelessFuture.Future
 import com.qifun.qforce.bcp.BcpException.DataTooBig
 
 private[bcp] object BcpSession {
+
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
   /**
@@ -149,10 +150,17 @@ private[bcp] object BcpSession {
 
   }
 
-  private final case class SendingConnectionQueue[C <: Connection[_]](
-    val openConnections: Set[C] = Set.empty[C],
-    val availableConnections: Set[C] = Set.empty[C])
+  private type LastUnconfirmedEnqueueTime = Long
 
+  private final val AllConfirmed = Long.MaxValue
+
+  private type SendingConnectionQueue[C <: Connection[_]] = scala.collection.immutable.SortedMap[LastUnconfirmedEnqueueTime, Set[C]]
+
+  /*
+  private final case class SendingConnectionQueue(
+    val openConnections: Set[Connection] = Set.empty[Connection],
+    val availableConnections: Set[Connection] = Set.empty[Connection])
+*/
   final case class PacketQueue(length: Int = 0, queue: Queue[AcknowledgeRequired] = Queue.empty)
 
 }
@@ -165,10 +173,16 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   import BcpSession.appender
   import BcpSession.formater
   import BcpSession.between
+  import BcpSession.AllConfirmed
+  import scala.collection.immutable.Map
 
   private type SendingConnectionQueue = BcpSession.SendingConnectionQueue[Connection]
 
   private[bcp] def newConnection: Connection
+
+  private def newSendingConnectionQueue: SendingConnectionQueue = {
+    scala.collection.immutable.SortedMap.empty(Ordering.Long.reverse)
+  }
 
   private[bcp] def internalExecutor: ScheduledExecutorService
 
@@ -213,13 +227,18 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private val connections = TMap.empty[Int, Connection]
 
   private val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
-    Ref(Right(SendingConnectionQueue()))
+    Ref(Right(newSendingConnectionQueue))
   }
 
   private def addOpenConnection(connection: Connection)(implicit txn: InTxn) {
     sendingQueue() match {
-      case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-        sendingQueue() = Right(SendingConnectionQueue(openConnections + connection, availableConnections + connection))
+      case Right(sendingConnectionQueue) => {
+        sendingConnectionQueue.get(AllConfirmed) match {
+          case Some(openConnections) =>
+            sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> (openConnections + connection)))
+          case None =>
+            sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> Set(connection)))
+        }
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
         val stream = connection.stream()
@@ -230,24 +249,29 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
         Txn.afterCommit(_ => available())
-        sendingQueue() = Right(SendingConnectionQueue(Set(connection), Set(connection)))
+        sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
       }
     }
   }
 
   private def removeOpenConnection(connection: Connection)(implicit txn: InTxn) {
     sendingQueue() match {
-      case Right(SendingConnectionQueue(openConnections, availableConnections)) =>
-        if (openConnections.head == connection && openConnections.tail.isEmpty) {
-          sendingQueue() = Left(PacketQueue())
-          Txn.afterCommit(_ => unavailable())
-        } else {
-          val newQueue = SendingConnectionQueue(openConnections - connection, availableConnections - connection)
-          sendingQueue() = Right(newQueue)
+      case Right(sendingConnectionQueue) =>
+        sendingConnectionQueue find { _._2.contains(connection) } match {
+          case Some((time, openConnections)) if openConnections.size == 1 =>
+            val newSendingConnctionQueue = sendingConnectionQueue - time
+            if (newSendingConnctionQueue.isEmpty) {
+              sendingQueue() = Left(PacketQueue())
+              Txn.afterCommit(_ => unavailable())
+            } else {
+              sendingQueue() = Right(newSendingConnctionQueue)
+            }
+          case Some((time, openConnections)) =>
+            val newOpenConnections = openConnections - connection
+            sendingQueue() = Right(sendingConnectionQueue + (time -> newOpenConnections))
         }
       case left: Left[_, _] =>
     }
-
   }
 
   /**
@@ -255,22 +279,20 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
    */
   private def trySend(newPack: Packet)(implicit txn: InTxn) {
     sendingQueue() match {
-      case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-        def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) {
-          val (first, rest) = availableConnections.splitAt(1)
-          val connection = first.head
-          val stream = connection.stream()
-          Txn.afterCommit { _ =>
-            BcpIo.enqueue(stream, newPack)
-            stream.flush()
-          }
-          resetHeartBeatTimer(stream)
-          sendingQueue() = Right(SendingConnectionQueue(openConnections, rest))
+      case Right(sendingConnectionQueue) => {
+        val (time, openConnections) = sendingConnectionQueue.head
+        val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
+        val connection = firstOpenConnection.head
+        val stream = connection.stream()
+        Txn.afterCommit { _ =>
+          BcpIo.enqueue(stream, newPack)
+          stream.flush()
         }
-        if (availableConnections.isEmpty) {
-          consume(openConnections, openConnections)
+        resetHeartBeatTimer(stream)
+        if (restOpenConections.isEmpty) {
+          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
         } else {
-          consume(openConnections, availableConnections)
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
         }
       }
       case left: Left[_, _] =>
@@ -282,23 +304,21 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
    */
   private def enqueue(newPack: AcknowledgeRequired)(implicit txn: InTxn) {
     sendingQueue() match {
-      case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-        def consume(openConnections: Set[Connection], availableConnections: Set[Connection]) = {
-          val (first, rest) = availableConnections.splitAt(1)
-          val connection = first.head
-          val stream = connection.stream()
-          Txn.afterCommit { _ =>
-            BcpIo.enqueue(stream, newPack)
-            stream.flush()
-          }
-          connection.unconfirmedPackets.transform(_.enqueue(newPack))
-          resetHeartBeatTimer(stream)
-          Right(SendingConnectionQueue(openConnections, rest))
+      case Right(sendingConnectionQueue) => {
+        val (time, openConnections) = sendingConnectionQueue.head
+        val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
+        val connection = firstOpenConnection.head
+        val stream = connection.stream()
+        Txn.afterCommit { _ =>
+          BcpIo.enqueue(stream, newPack)
+          stream.flush()
         }
-        sendingQueue() = if (availableConnections.isEmpty) {
-          consume(openConnections, openConnections)
+        connection.unconfirmedPackets.transform(_.enqueue(newPack))
+        resetHeartBeatTimer(stream)
+        if (restOpenConections.isEmpty) {
+          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
         } else {
-          consume(openConnections, availableConnections)
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
         }
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
@@ -350,8 +370,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     trySend(ShutDown)
     release()
     sendingQueue() match {
-      case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-        for (connection <- openConnections) {
+      case Right(sendingConnectionQueue) => {
+        for (connections <- sendingConnectionQueue.values; connection <- connections) {
           val stream = connection.stream()
           connection.stream() = null
           assert(stream != null)
@@ -487,8 +507,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         case Renew => {
           atomic { implicit txn =>
             sendingQueue() match {
-              case Right(SendingConnectionQueue(openConnections, availableConnections)) => {
-                for (originalConnection <- openConnections) {
+              case Right(sendingConnectionQueue) => {
+                for (openConnections <- sendingConnectionQueue.values; originalConnection <- openConnections) {
                   if (originalConnection != connection) {
                     val stream = originalConnection.stream()
                     stream.interrupt()
@@ -501,7 +521,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               }
               case _: Left[_, _] =>
             }
-            sendingQueue() = Right(SendingConnectionQueue(Set(connection), Set(connection)))
+            sendingQueue() = Right(newSendingConnectionQueue)
             connections.clear()
             connections(connectionId) = connection
           }
