@@ -260,7 +260,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         sendingConnectionQueue find { _._2.contains(connection) } match {
           case Some((time, openConnections)) if openConnections.size == 1 =>
             val newSendingConnctionQueue = sendingConnectionQueue - time
-            if (newSendingConnctionQueue.size == 0) {
+            if (newSendingConnctionQueue.isEmpty) {
               sendingQueue() = Left(PacketQueue())
               Txn.afterCommit(_ => unavailable())
             } else {
