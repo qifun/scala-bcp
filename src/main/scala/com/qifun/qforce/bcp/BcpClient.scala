@@ -1,18 +1,15 @@
-package com.qifun.qforce.bcp.client
+package com.qifun.qforce.bcp
 
 import java.util.concurrent.ScheduledExecutorService
 import java.nio.ByteBuffer
 import java.nio.channels.AsynchronousSocketChannel
-import com.qifun.qforce.bcp.BcpSession
 import java.util.concurrent.Executor
 import scala.concurrent.stm.InTxn
 import com.qifun.statelessFuture.Future
 import com.qifun.qforce.bcp.Bcp._
-import com.qifun.qforce.bcp.BcpSession
 import com.qifun.qforce.bcp.BcpSession._
 import scala.util.control.Exception.Catcher
 import scala.PartialFunction
-import com.qifun.qforce.bcp.BcpIo
 import scala.reflect.classTag
 import scala.concurrent.stm.atomic
 import scala.concurrent.stm.Ref
@@ -26,7 +23,7 @@ import java.util.concurrent.ScheduledFuture
 
 object BcpClient {
 
-  private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
+  private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
   private[BcpClient] final class Stream(bcpClient: BcpClient, socket: AsynchronousSocketChannel, internalExecutor: ScheduledExecutorService) extends BcpSession.Stream(socket) {
     // 客户端专有的数据结构，比如Timer
@@ -63,7 +60,7 @@ object BcpClient {
 
 abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
 
-  import BcpClient.{ logger, formater, appender }
+  import BcpClient.{ logger, formatter, appender }
 
   override private[bcp] final def newConnection = new BcpClient.Connection
 
