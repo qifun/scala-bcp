@@ -22,7 +22,7 @@ import scala.concurrent.stm.Txn
 
 object BcpClient {
 
-  private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
+  private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
   private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // TODO: 客户端专有的数据结构，比如Timer
@@ -48,7 +48,7 @@ object BcpClient {
 
 abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
 
-  import BcpClient.{ logger, formater, appender }
+  import BcpClient.{ logger, formatter, appender }
 
   override private[bcp] final def newConnection = new BcpClient.Connection
 
