@@ -19,27 +19,42 @@ import scala.concurrent.stm.Ref
 import java.security.SecureRandom
 import com.dongxiguo.fastring.Fastring.Implicits._
 import scala.concurrent.stm.Txn
+import com.qifun.statelessFuture.util.Sleep
+import java.util.concurrent.Executors
+import scala.concurrent.duration._
+import java.util.concurrent.ScheduledFuture
 
 object BcpClient {
 
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
-  private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
-    // TODO: 客户端专有的数据结构，比如Timer
-    val xxx: Int = 1
+  private[BcpClient] final class Stream(bcpClient: BcpClient, socket: AsynchronousSocketChannel, internalExecutor: ScheduledExecutorService) extends BcpSession.Stream(socket) {
+    // 客户端专有的数据结构，比如Timer
+    val executor: ScheduledExecutorService = internalExecutor
+    val belongedClient = bcpClient
+    val timer = Ref.make[ScheduledFuture[_]]
   }
 
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
 
     override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
       atomic { implicit txn =>
-        this.stream().xxx
+        logger.info("the connection is busy!")
+        stream().timer() = stream().executor.schedule(new Runnable() {
+          def run() {
+            logger.info("client connect server again")
+            stream().belongedClient.internalConnect()
+          }
+        }, 300, MILLISECONDS)
       }
-      ??? // TODO: 设置timer，建立新连接 
     }
 
     override private[bcp] final def idle()(implicit txn: InTxn): Unit = {
-      ??? // TODO: 设置timer，关闭多余的连接
+      // TODO: 设置timer，关闭多余的连接
+      atomic { implicit txn =>
+        logger.info("the connection is idle!")
+        stream().timer().cancel(false)
+      }
     }
 
   }
@@ -63,14 +78,11 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
 
-  private def start() {
-    val secureRandom = new SecureRandom
-    secureRandom.setSeed(secureRandom.generateSeed(20))
-    secureRandom.nextBytes(sessionId)
+  private[bcp] final def internalConnect() {
     implicit def catcher: Catcher[Unit] = PartialFunction.empty
     for (socket <- connect()) {
       logger.fine(fast"bcp client connect server success, socket: ${socket}")
-      val stream = new BcpClient.Stream(socket)
+      val stream = new BcpClient.Stream(this, socket, internalExecutor)
       atomic { implicit txn =>
         val connectionId = nextConnectionId()
         nextConnectionId() = connectionId + 1
@@ -82,6 +94,13 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
         addStream(connectionId, stream)
       }
     }
+  }
+
+  private final def start() {
+    val secureRandom = new SecureRandom
+    secureRandom.setSeed(secureRandom.generateSeed(20))
+    secureRandom.nextBytes(sessionId)
+    internalConnect()
   }
 
   start()

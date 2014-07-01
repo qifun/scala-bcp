@@ -57,9 +57,9 @@ private[bcp] object BcpSession {
   }
 
   final case class IdSet(lowId: Int, highId: Int, ids: Set[Int]) {
-    
+
     import IdSet._
-    
+
     final def +(id: Int) = {
       if (between(lowId, highId, id)) {
         IdSet.compat(lowId, highId, ids + id)
@@ -249,7 +249,11 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
         Txn.afterCommit(_ => available())
-        sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
+        if (packQueue.isEmpty) {
+          sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
+        } else {
+          sendingQueue() = Right(newSendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
+        }
       }
     }
   }
@@ -289,10 +293,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           stream.flush()
         }
         resetHeartBeatTimer(stream)
+        val currentTimeMillis = System.currentTimeMillis
+        val currentConnections = sendingConnectionQueue.getOrElse(currentTimeMillis, Set[Connection]())
         if (restOpenConections.isEmpty) {
-          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
+          sendingQueue() = Right(sendingConnectionQueue + (currentTimeMillis -> (currentConnections + connection)))
         } else {
-          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (currentTimeMillis -> (currentConnections + connection)))
         }
       }
       case left: Left[_, _] =>
@@ -312,13 +318,16 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         Txn.afterCommit { _ =>
           BcpIo.enqueue(stream, newPack)
           stream.flush()
+          connection.busy
         }
         connection.unconfirmedPackets.transform(_.enqueue(newPack))
         resetHeartBeatTimer(stream)
+        val currentTimeMillis = System.currentTimeMillis
+        val currentConnections = sendingConnectionQueue.getOrElse(currentTimeMillis, Set[Connection]())
         if (restOpenConections.isEmpty) {
-          sendingQueue() = Right(sendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
+          sendingQueue() = Right(sendingConnectionQueue + (currentTimeMillis -> (currentConnections + connection)))
         } else {
-          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (System.currentTimeMillis -> Set(connection)))
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (currentTimeMillis -> (currentConnections + connection)))
         }
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
@@ -453,6 +462,21 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           atomic { implicit txn =>
             val (originalPack, queue) = connection.unconfirmedPackets().dequeue
             connection.unconfirmedPackets() = queue
+            if (queue.isEmpty) {
+              sendingQueue() match {
+                case Right(sendingConnectionQueue) =>
+                  val (time, openConnections) = (sendingConnectionQueue.find({ _._2.contains(connection) })).get
+                  val newOpenConnections = openConnections - connection
+                  val allConfirmedConnections = sendingConnectionQueue.getOrElse(AllConfirmed, Set[Connection]())
+                  if (newOpenConnections.isEmpty) {
+                    sendingQueue() = Right(sendingConnectionQueue + (AllConfirmed -> (allConfirmedConnections + connection)))
+                  } else {
+                    sendingQueue() = Right(sendingConnectionQueue + (time -> newOpenConnections) + (AllConfirmed -> (allConfirmedConnections + connection)))
+                  }
+                case left: Left[_, _] =>
+              }
+              connection.idle
+            }
             originalPack match {
               case Data(buffer) => {
                 connection.numAcknowledgeReceivedForData() += 1
