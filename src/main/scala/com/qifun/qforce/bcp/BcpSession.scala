@@ -219,7 +219,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
    * 且[[Connection.unconfirmedPackets]]为空，
    * 才会把[[Connection]]从[[connections]]中移除。
    */
-  private val connections = TMap.empty[Int, Connection]
+  protected val connections = TMap.empty[Int, Connection]
 
   private val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
     Ref(Right(newSendingConnectionQueue))
@@ -375,7 +375,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     release()
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
-        for (connections <- sendingConnectionQueue.values; connection <- connections) {
+        for (openConnections <- sendingConnectionQueue.values; connection <- openConnections) {
           val stream = connection.stream()
           connection.stream() = null
           assert(stream != null)

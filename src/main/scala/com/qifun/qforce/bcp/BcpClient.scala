@@ -53,7 +53,6 @@ object BcpClient {
         stream().timer().cancel(false)
       }
     }
-
   }
 
 }
@@ -75,29 +74,33 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
 
-  private[bcp] final def internalConnect() {
-    implicit def catcher: Catcher[Unit] = PartialFunction.empty
-    for (socket <- connect()) {
-      logger.fine(fast"bcp client connect server success, socket: ${socket}")
-      val stream = new BcpClient.Stream(this, socket, internalExecutor)
-      atomic { implicit txn =>
-        val connectionId = nextConnectionId()
-        nextConnectionId() = connectionId + 1
-        Txn.afterCommit(_ => {
-          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
-          stream.flush()
-          logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
-        })
-        addStream(connectionId, stream)
+  private[bcp] final def internalConnect()(implicit txn: InTxn) {
+    if (connections.size <= MaxConnectionsPerSession) {
+      implicit def catcher: Catcher[Unit] = PartialFunction.empty
+      for (socket <- connect()) {
+        logger.fine(fast"bcp client connect server success, socket: ${socket}")
+        val stream = new BcpClient.Stream(this, socket, internalExecutor)
+        atomic { implicit txn =>
+          val connectionId = nextConnectionId()
+          nextConnectionId() = connectionId + 1
+          Txn.afterCommit(_ => {
+            BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+            stream.flush()
+            logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
+          })
+          addStream(connectionId, stream)
+        }
       }
     }
   }
 
   private final def start() {
-    val secureRandom = new SecureRandom
-    secureRandom.setSeed(secureRandom.generateSeed(20))
-    secureRandom.nextBytes(sessionId)
-    internalConnect()
+    atomic { implicit txn: InTxn =>
+      val secureRandom = new SecureRandom
+      secureRandom.setSeed(secureRandom.generateSeed(20))
+      secureRandom.nextBytes(sessionId)
+      internalConnect()
+    }
   }
 
   start()
