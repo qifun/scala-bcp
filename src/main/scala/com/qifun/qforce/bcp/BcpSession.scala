@@ -20,8 +20,6 @@ import com.qifun.qforce.bcp.BcpException.DataTooBig
 private[bcp] object BcpSession {
   private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
 
-  private class IdSetIsFullException extends Exception
-
   /**
    * 判断`test`是否在[`low`,`high`)区间。
    *
@@ -50,20 +48,22 @@ private[bcp] object BcpSession {
 
     def empty = new IdSet(0, 0, Set.empty)
 
+    /**
+     * 最新的数据包和最旧的未确认数据包最多相差多少。
+     */
+    private final val MaxUnconfirmedIds = 1024
+
   }
 
   final case class IdSet(lowId: Int, highId: Int, ids: Set[Int]) {
-
-    @throws(classOf[IdSetIsFullException])
+    
+    import IdSet._
+    
     final def +(id: Int) = {
       if (between(lowId, highId, id)) {
         IdSet.compat(lowId, highId, ids + id)
-      } else if (between(highId, highId + 1024, id)) {
-        if (between(lowId, lowId + 2048, id)) {
-          throw new IdSetIsFullException
-        } else {
-          IdSet.compat(lowId, id + 1, ids + id)
-        }
+      } else if (between(lowId, lowId + MaxUnconfirmedIds, id)) {
+        IdSet.compat(lowId, id + 1, ids + id)
       } else {
         this
       }
@@ -72,7 +72,7 @@ private[bcp] object BcpSession {
     final def isReceived(id: Int) = {
       if (between(lowId, highId, id)) {
         ids.contains(id)
-      } else if (between(highId, highId + 1024, id)) {
+      } else if (between(highId, lowId + MaxUnconfirmedIds, id)) {
         false
       } else {
         true
