@@ -19,7 +19,7 @@ import com.qifun.qforce.bcp.BcpException.DataTooBig
 
 private[bcp] object BcpSession {
 
-  private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
+  private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
   /**
    * 判断`test`是否在[`low`,`high`)区间。
@@ -166,7 +166,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   import BcpSession.PacketQueue
   import BcpSession.logger
   import BcpSession.appender
-  import BcpSession.formater
+  import BcpSession.formatter
   import BcpSession.between
   import BcpSession.AllConfirmed
   import scala.collection.immutable.Map

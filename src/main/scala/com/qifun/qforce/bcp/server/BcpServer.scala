@@ -34,7 +34,7 @@ import com.dongxiguo.fastring.Fastring.Implicits._
 
 object BcpServer {
 
-  private implicit val (logger, formater, appender) = ZeroLoggerFactory.newLogger(this)
+  private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
   private[BcpServer] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // TODO: 服务端专有的数据结构
@@ -80,7 +80,7 @@ object BcpServer {
 abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
   import BcpServer.logger
   import BcpServer.appender
-  import BcpServer.formater
+  import BcpServer.formatter
 
   protected def executor: ScheduledExecutorService
 
