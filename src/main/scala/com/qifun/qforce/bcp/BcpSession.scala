@@ -257,7 +257,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def removeOpenConnection(connection: Connection)(implicit txn: InTxn) {
     sendingQueue() match {
       case Right(sendingConnectionQueue) =>
-        sendingConnectionQueue find { _._2 exists { _ == connection } } match {
+        sendingConnectionQueue find { _._2.contains(connection) } match {
           case Some((time, openConnections)) if openConnections.size == 1 =>
             val newSendingConnctionQueue = sendingConnectionQueue - time
             if (newSendingConnctionQueue.size == 0) {
