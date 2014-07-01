@@ -371,7 +371,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     release()
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
-        for (connection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())(_ ++ _)) {
+        for (connections <- sendingConnectionQueue.values; connection <- connections) {
           val stream = connection.stream()
           connection.stream() = null
           assert(stream != null)
@@ -508,7 +508,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           atomic { implicit txn =>
             sendingQueue() match {
               case Right(sendingConnectionQueue) => {
-                for (originalConnection <- sendingConnectionQueue.values.foldLeft(Seq[Connection]())(_ ++ _)) {
+                for (openConnections <- sendingConnectionQueue.values; originalConnection <- openConnections) {
                   if (originalConnection != connection) {
                     val stream = originalConnection.stream()
                     stream.interrupt()
