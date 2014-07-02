@@ -405,11 +405,13 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     connection.numDataReceived() = packId + 1
     connection.finishIdReceived() match {
       case None => {
+        // TODO: 从openConnections列表中移除
         connection.finishIdReceived() = Some(packId)
         checkConnectionFinish(connectionId, connection)
         // 无需触发事件通知用户，结束的只是一个连接，而不是整个Session
       }
       case Some(originalPackId) => {
+        // TODO: 把assert改为某种协议错误异常，以免非法客户端发送两个不同ID的Finish搞崩服务器
         assert(originalPackId == packId)
       }
     }
