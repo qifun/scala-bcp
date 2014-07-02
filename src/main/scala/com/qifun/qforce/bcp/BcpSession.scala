@@ -492,7 +492,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           startReceive(connectionId, connection, stream)
         }
         case Finish => {
-          println("!!!!!!!!! serve receive finish")
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(stream)
