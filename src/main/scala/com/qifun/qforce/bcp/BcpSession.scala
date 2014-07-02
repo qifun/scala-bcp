@@ -124,7 +124,7 @@ private[bcp] object BcpSession {
 
     val finishIdReceived = Ref[Option[Int]](None)
 
-    val isFinishSent = Ref(false)
+    val isFinishSent = Ref(true)
 
     /**
      * 收到了多少个[[Data]]
@@ -152,7 +152,7 @@ private[bcp] object BcpSession {
 
   private type LastUnconfirmedEnqueueTime = Long
 
-  private final val AllConfirmed = Long.MaxValue
+  private[bcp] final val AllConfirmed = Long.MaxValue
 
   private type SendingConnectionQueue[C <: Connection[_]] = scala.collection.immutable.SortedMap[LastUnconfirmedEnqueueTime, Set[C]]
 
@@ -221,7 +221,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
    */
   protected val connections = TMap.empty[Int, Connection]
 
-  private val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
+  private[bcp] val sendingQueue: Ref[Either[PacketQueue, SendingConnectionQueue]] = {
     Ref(Right(newSendingConnectionQueue))
   }
 
@@ -248,6 +248,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
         } else {
           sendingQueue() = Right(newSendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
+          connection.busy()
         }
       }
     }
@@ -310,10 +311,10 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
         val connection = firstOpenConnection.head
         val stream = connection.stream()
+        connection.busy()
         Txn.afterCommit { _ =>
           BcpIo.enqueue(stream, newPack)
           stream.flush()
-          connection.busy
         }
         connection.unconfirmedPackets.transform(_.enqueue(newPack))
         resetHeartBeatTimer(stream)
@@ -335,7 +336,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
-  private def checkConnectionFinish(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
+  private[bcp] def checkConnectionFinish(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
     val isConnectionFinish =
       connection.isFinishSent() &&
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
@@ -352,6 +353,13 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         heartBeatTimer.cancel(false)
       }
     }
+  }
+  
+  private[bcp] def finishConnection(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
+    removeOpenConnection(connection)
+    connections.remove(connectionId)
+    val connectionStream = connection.stream()
+    BcpIo.enqueue(connectionStream, Finish)
   }
 
   private def dataReceived(
@@ -469,7 +477,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                   }
                 case left: Left[_, _] =>
               }
-              connection.idle
+              connection.idle()
             }
             originalPack match {
               case Data(buffer) => {
@@ -484,6 +492,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           startReceive(connectionId, connection, stream)
         }
         case Finish => {
+          println("!!!!!!!!! serve receive finish")
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(stream)
