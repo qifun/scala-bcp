@@ -39,15 +39,6 @@ object BcpServer {
   }
 
   private[BcpServer] final class Connection extends BcpSession.Connection[Stream] {
-
-    override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
-      // 什么都不做
-    }
-
-    override private[bcp] final def idle()(implicit txn: InTxn): Unit = {
-      // 什么都不做
-    }
-
   }
 
   trait Session extends BcpSession[Stream, Connection] {
@@ -68,6 +59,17 @@ object BcpServer {
       val removedSessionOption = bcpServer.sessions.remove(sessionId)
       assert(removedSessionOption == Some(Session.this))
     }
+
+    override private[bcp] final def busy(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    }
+
+    override private[bcp] final def idle(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    }
+    
+      
+  override private[bcp] def close(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+  }
+
   }
 }
 

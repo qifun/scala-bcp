@@ -114,17 +114,11 @@ private[bcp] object BcpSession {
 
   private[bcp] abstract class Connection[Stream <: BcpSession.Stream] {
 
-    /** 当有数据发出时触发本事件 */
-    private[bcp] def busy()(implicit txn: InTxn): Unit
-
-    /** 当所有的数据都收到[[Bcp.Acknowledge]]时触发本事件 */
-    private[bcp] def idle()(implicit txn: InTxn): Unit
-
     val stream = Ref.make[Stream]
 
     val finishIdReceived = Ref[Option[Int]](None)
 
-    val isFinishSent = Ref(true)
+    val isFinishSent = Ref(false)
 
     /**
      * 收到了多少个[[Data]]
@@ -248,7 +242,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
         } else {
           sendingQueue() = Right(newSendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
-          connection.busy()
+          busy((for ((connId, conn) <- connections if conn == connection) yield connId).head, connection)
         }
       }
     }
@@ -311,7 +305,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
         val connection = firstOpenConnection.head
         val stream = connection.stream()
-        connection.busy()
+        busy((for ((connId, conn) <- connections if conn == connection) yield connId).head, connection)
         Txn.afterCommit { _ =>
           BcpIo.enqueue(stream, newPack)
           stream.flush()
@@ -336,14 +330,28 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
+  private def enqueueFinish(connection: Connection)(implicit txn: InTxn) {
+    connection.unconfirmedPackets.transform(_.enqueue(Finish))
+    val stream = connection.stream()
+    Txn.afterCommit(_ => {
+      BcpIo.enqueue(stream, Finish)
+      stream.flush()
+    })
+    connection.isFinishSent() = true
+  }
+
+  private[bcp] def finishConnection(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
+    enqueueFinish(connection)
+    removeOpenConnection(connection)
+    connections.remove(connectionId)
+  }
+
   private[bcp] def checkConnectionFinish(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
     val isConnectionFinish =
       connection.isFinishSent() &&
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
-      removeOpenConnection(connection)
-      connections.remove(connectionId)
       val connectionStream = connection.stream()
       connection.stream() = null
       val heartBeatTimer = connectionStream.heartBeatTimer()
@@ -353,13 +361,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         heartBeatTimer.cancel(false)
       }
     }
-  }
-  
-  private[bcp] def finishConnection(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
-    removeOpenConnection(connection)
-    connections.remove(connectionId)
-    val connectionStream = connection.stream()
-    BcpIo.enqueue(connectionStream, Finish)
   }
 
   private def dataReceived(
@@ -384,12 +385,17 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
         for (openConnections <- sendingConnectionQueue.values; connection <- openConnections) {
+          close((for ((connId, conn) <- connections if conn == connection) yield connId).head, connection)
           val stream = connection.stream()
           connection.stream() = null
           assert(stream != null)
           val heartBeatTimer = stream.heartBeatTimer()
+          stream.heartBeatTimer() = null
           // 直接关闭所有TCP连接，对端要是还没收到ShutDownInput的Acknowledge的话，只能靠TCP的CLOSE_WAIT机制了。
-          Txn.afterCommit(_ => stream.shutDown())
+          Txn.afterCommit(_ => {
+            heartBeatTimer.cancel(false)
+            stream.shutDown()
+          })
         }
         sendingQueue() = Left(PacketQueue())
       }
@@ -405,14 +411,14 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     connection.numDataReceived() = packId + 1
     connection.finishIdReceived() match {
       case None => {
-        // TODO: 从openConnections列表中移除
+        removeOpenConnection(connection)
+        connections.remove(connectionId)
         connection.finishIdReceived() = Some(packId)
         checkConnectionFinish(connectionId, connection)
         // 无需触发事件通知用户，结束的只是一个连接，而不是整个Session
       }
       case Some(originalPackId) => {
-        // TODO: 把assert改为某种协议错误异常，以免非法客户端发送两个不同ID的Finish搞崩服务器
-        assert(originalPackId == packId)
+        throw new BcpException.AlreadyReceivedFinish
       }
     }
   }
@@ -479,7 +485,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                   }
                 case left: Left[_, _] =>
               }
-              connection.idle()
+              idle(connectionId, connection)
             }
             originalPack match {
               case Data(buffer) => {
@@ -496,11 +502,13 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         case Finish => {
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
+            if (!connection.isFinishSent()) {
+              enqueueFinish(connection)
+            }
             resetHeartBeatTimer(stream)
             val packId = connection.numDataReceived()
             finishReceived(connectionId, connection, packId)
           }
-          startReceive(connectionId, connection, stream)
           stream.flush()
         }
         case RetransmissionFinish(finishConnectionId, packId) => {
@@ -616,6 +624,14 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       enqueue(Data(buffer))
     }
   }
+
+  /** 当有数据发出时触发本事件 */
+  private[bcp] def busy(connectionId: Int, connection: Connection)(implicit txn: InTxn): Unit
+
+  /** 当所有的数据都收到[[Bcp.Acknowledge]]时触发本事件 */
+  private[bcp] def idle(connectionId: Int, connection: Connection)(implicit txn: InTxn): Unit
+
+  private[bcp] def close(connectionId: Int, connection: Connection)(implicit txn: InTxn): Unit
 
   private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
     if (connections.size >= MaxConnectionsPerSession) {

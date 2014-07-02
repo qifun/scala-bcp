@@ -24,50 +24,11 @@ object BcpClient {
 
   private[BcpClient] final class Stream(bcpClient: BcpClient, id: Int, socket: AsynchronousSocketChannel, internalExecutor: ScheduledExecutorService) extends BcpSession.Stream(socket) {
     // 客户端专有的数据结构，比如Timer
-    val connectionId: Int = id
-    val executor: ScheduledExecutorService = internalExecutor
-    val belongedClient = bcpClient
     val busyTimer = Ref.make[ScheduledFuture[_]]
     val idleTimer = Ref.make[ScheduledFuture[_]]
   }
 
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
-
-    override private[bcp] final def busy()(implicit txn: InTxn): Unit = {
-      logger.info("the connection is busy!")
-      val oldBusyTimer = stream().busyTimer()
-      if (oldBusyTimer == null || oldBusyTimer.isDone()) {
-        val idleTimer = stream().idleTimer()
-        Txn.afterCommit(_ => {
-          if (idleTimer != null) {
-            idleTimer.cancel(false)
-          }
-        })
-        val newBusyTimer = stream().executor.schedule(new Runnable() {
-          def run() {
-            logger.info("client connect server again")
-            stream().belongedClient.internalConnect()
-          }
-        }, BusyTimeout.length, BusyTimeout.unit)
-        Txn.afterRollback(_ => newBusyTimer.cancel(false))
-        stream().busyTimer() = newBusyTimer
-      }
-    }
-
-    override private[bcp] final def idle()(implicit txn: InTxn): Unit = {
-      logger.info("the connection is idle!")
-      val busyTimer = stream().busyTimer()
-      Txn.afterCommit(_ => busyTimer.cancel(false))
-      val connectionStream = stream()
-      final class IdleRunnable(connection: BcpClient.Connection) extends Runnable {
-        def run() {
-          connectionStream.belongedClient.closeConnection(connectionStream.connectionId, connection)
-        }
-      }
-      val idleTimer = stream().executor.schedule(new IdleRunnable(this), IdleTimeout.length, IdleTimeout.unit)
-      Txn.afterRollback(_ => idleTimer.cancel(false))
-      stream().idleTimer() = idleTimer
-    }
   }
 
 }
@@ -85,6 +46,56 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   override private[bcp] final def internalExecutor: ScheduledExecutorService = executor
 
   override private[bcp] final def release()(implicit txn: InTxn) {}
+
+  override private[bcp] final def busy(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+    logger.info("the connection is busy!")
+    val oldBusyTimer = connection.stream().busyTimer()
+    if (oldBusyTimer == null || oldBusyTimer.isDone()) {
+      val idleTimer = connection.stream().idleTimer()
+      Txn.afterCommit(_ => {
+        if (idleTimer != null) {
+          idleTimer.cancel(false)
+        }
+      })
+      val newBusyTimer = internalExecutor.schedule(new Runnable() {
+        def run() {
+          logger.info("client connect server again")
+          internalConnect()
+        }
+      }, BusyTimeout.length, BusyTimeout.unit)
+      Txn.afterRollback(_ => newBusyTimer.cancel(false))
+      connection.stream().busyTimer() = newBusyTimer
+    }
+  }
+
+  override private[bcp] final def idle(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+    logger.info("the connection is idle!")
+    val busyTimer = connection.stream().busyTimer()
+    Txn.afterCommit(_ => busyTimer.cancel(false))
+    val connectionStream = connection.stream()
+    final class IdleRunnable(connection: BcpClient.Connection) extends Runnable {
+      def run() {
+        closeConnection(connectionId, connection)
+      }
+    }
+    val idleTimer = internalExecutor.schedule(new IdleRunnable(connection), IdleTimeout.length, IdleTimeout.unit)
+    Txn.afterRollback(_ => idleTimer.cancel(false))
+    connection.stream().idleTimer() = idleTimer
+  }
+
+  override private[bcp] def close(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+    val busyTimer = connection.stream().busyTimer()
+    if (busyTimer != null) {
+      connection.stream().busyTimer() = null
+      Txn.afterCommit(_ => busyTimer.cancel(false))
+    }
+
+    val idleTimer = connection.stream().idleTimer()
+    if (idleTimer != null) {
+      connection.stream().idleTimer() = null
+      Txn.afterCommit(_ => idleTimer.cancel(false))
+    }
+  }
 
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)

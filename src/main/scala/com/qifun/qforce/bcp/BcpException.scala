@@ -23,5 +23,8 @@ object BcpException {
    */
   class DataTooBig(message: String = "The data received was too big!", cause: Throwable = null)
     extends BcpException(message, cause)
+  
+  class AlreadyReceivedFinish(message: String = "Already received the Finish Packet", cause: Throwable = null)
+    extends BcpException(message, cause)
 
 }
