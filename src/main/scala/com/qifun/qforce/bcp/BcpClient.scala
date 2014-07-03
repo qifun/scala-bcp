@@ -99,9 +99,13 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
+  private val isConnecting = Ref(false)
 
   private final def internalConnect()(implicit txn: InTxn) {
-    if (connections.size <= MaxConnectionsPerSession) {
+    if (!isConnecting() &&
+      connections.size <= MaxConnectionsPerSession &&
+      (sendingQueue().isLeft || !sendingQueue().right.exists(_ == AllConfirmed))) {
+      isConnecting() = true
       val connectionId = nextConnectionId()
       nextConnectionId() = connectionId + 1
       Txn.afterCommit { _ =>
@@ -113,6 +117,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
           stream.flush()
           logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
           addStream(connectionId, stream)
+          atomic { implicit txn =>
+            isConnecting() = false
+          }
         }
       }
     }
