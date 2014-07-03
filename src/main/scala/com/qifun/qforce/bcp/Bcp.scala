@@ -117,7 +117,7 @@ object Bcp {
    * 
    * @group Constants
    */
-  final val IdleTimeout = 10.seconds
+  final val IdleTimeout = 60.seconds
 
   /**
    * Session ID由多少字节构成

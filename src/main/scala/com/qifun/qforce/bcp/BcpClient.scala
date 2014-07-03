@@ -106,20 +106,21 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       nextConnectionId() = connectionId + 1
       Txn.afterCommit(_ => {
         implicit def catcher: Catcher[Unit] = PartialFunction.empty
-        val socket = Blocking.blockingAwait(connect())
-        logger.fine(fast"bcp client connect server success, socket: ${socket}")
-        val stream = new BcpClient.Stream(socket)
-        BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
-        stream.flush()
-        logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
-        addStream(connectionId, stream)
+        for (socket <- connect()) {
+          logger.fine(fast"bcp client connect server success, socket: ${socket}")
+          val stream = new BcpClient.Stream(socket)
+          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+          stream.flush()
+          logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
+          addStream(connectionId, stream)
+        }
       })
     }
   }
 
   private final def closeConnection(connectionId: Int, connection: BcpClient.Connection) {
     atomic { implicit txn =>
-      if (connections.size > 0) {
+      if (connections.size > 1) {
         finishConnection(connectionId, connection)
       }
     }
