@@ -22,7 +22,7 @@ object BcpClient {
 
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
-  private[BcpClient] final class Stream(bcpClient: BcpClient, id: Int, socket: AsynchronousSocketChannel, internalExecutor: ScheduledExecutorService) extends BcpSession.Stream(socket) {
+  private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // 客户端专有的数据结构，比如Timer
     val busyTimer = Ref.make[ScheduledFuture[_]]
     val idleTimer = Ref.make[ScheduledFuture[_]]
@@ -107,7 +107,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
         val socket = Blocking.blockingAwait(connect())
         logger.fine(fast"bcp client connect server success, socket: ${socket}")
         val connectionId = nextConnectionId()
-        val stream = new BcpClient.Stream(this, connectionId, socket, internalExecutor)
+        val stream = new BcpClient.Stream(socket)
         nextConnectionId() = connectionId + 1
         Txn.afterCommit(_ => {
           BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))

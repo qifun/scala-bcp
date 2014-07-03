@@ -302,7 +302,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
         val (time, openConnections) = sendingConnectionQueue.head
-        val (firstOpenConnection, restOpenConections) = openConnections.splitAt(1)
+        val (firstOpenConnection, restOpenConnections) = openConnections.splitAt(1)
         val connection = firstOpenConnection.head
         val stream = connection.stream()
         busy((for ((connId, conn) <- connections if conn == connection) yield connId).head, connection)
@@ -314,10 +314,10 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         resetHeartBeatTimer(stream)
         val currentTimeMillis = System.currentTimeMillis
         val currentConnections = sendingConnectionQueue.getOrElse(currentTimeMillis, Set[Connection]())
-        if (restOpenConections.isEmpty) {
+        if (restOpenConnections.isEmpty) {
           sendingQueue() = Right(sendingConnectionQueue + (currentTimeMillis -> (currentConnections + connection)))
         } else {
-          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConections) + (currentTimeMillis -> (currentConnections + connection)))
+          sendingQueue() = Right(sendingConnectionQueue + (time -> restOpenConnections) + (currentTimeMillis -> (currentConnections + connection)))
         }
       }
       case Left(PacketQueue(queueLength, packQueue)) => {
