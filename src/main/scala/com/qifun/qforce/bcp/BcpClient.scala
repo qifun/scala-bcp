@@ -83,7 +83,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     connection.stream().idleTimer() = idleTimer
   }
 
-  override private[bcp] def close(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+  override private[bcp] final def close(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     val busyTimer = connection.stream().busyTimer()
     if (busyTimer != null) {
       connection.stream().busyTimer() = null
@@ -100,22 +100,20 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
 
-  private[bcp] final def internalConnect() {
-    atomic { implicit txn: InTxn =>
-      if (connections.size <= MaxConnectionsPerSession) {
+  private final def internalConnect()(implicit txn: InTxn) {
+    if (connections.size <= MaxConnectionsPerSession) {
+      val connectionId = nextConnectionId()
+      nextConnectionId() = connectionId + 1
+      Txn.afterCommit(_ => {
         implicit def catcher: Catcher[Unit] = PartialFunction.empty
         val socket = Blocking.blockingAwait(connect())
         logger.fine(fast"bcp client connect server success, socket: ${socket}")
-        val connectionId = nextConnectionId()
         val stream = new BcpClient.Stream(socket)
-        nextConnectionId() = connectionId + 1
-        Txn.afterCommit(_ => {
-          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
-          stream.flush()
-          logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
-        })
+        BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+        stream.flush()
+        logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
         addStream(connectionId, stream)
-      }
+      })
     }
   }
 

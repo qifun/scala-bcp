@@ -106,18 +106,18 @@ object Bcp {
   final val WritingTimeout = 1.seconds
   
   /**
-   * 链接在busy状态多长时间就新建链接
+   * 连接在busy状态多长时间就新建链接
    * 
    * @group Constants
    */
   final val BusyTimeout = 300.milliseconds
   
   /**
-   * 链接在idle状态多长时间就关闭链接
+   * 连接在idle状态多长时间就关闭链接
    * 
    * @group Constants
    */
-  final val IdleTimeout = 60.seconds
+  final val IdleTimeout = 10.seconds
 
   /**
    * Session ID由多少字节构成
