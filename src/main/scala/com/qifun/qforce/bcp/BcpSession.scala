@@ -360,10 +360,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
-      val connectionStream = connection.stream()
-      Txn.afterCommit { _ =>
-        connectionStream.interrupt()
-      }
+      connections.remove(connectionId)
     }
   }
 
