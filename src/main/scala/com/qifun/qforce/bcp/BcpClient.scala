@@ -52,11 +52,11 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     val oldBusyTimer = connection.stream().busyTimer()
     if (oldBusyTimer == null || oldBusyTimer.isDone()) {
       val idleTimer = connection.stream().idleTimer()
-      Txn.afterCommit(_ => {
+      Txn.afterCommit { _ =>
         if (idleTimer != null) {
           idleTimer.cancel(false)
         }
-      })
+      }
       val newBusyTimer = internalExecutor.schedule(new Runnable() {
         def run() {
           logger.info("client connect server again")
@@ -75,7 +75,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     val connectionStream = connection.stream()
     final class IdleRunnable(connection: BcpClient.Connection) extends Runnable {
       def run() {
-        closeConnection(connectionId, connection)
+        checkFinishConnection(connectionId, connection)
       }
     }
     val idleTimer = internalExecutor.schedule(new IdleRunnable(connection), IdleTimeout.length, IdleTimeout.unit)
@@ -104,7 +104,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     if (connections.size <= MaxConnectionsPerSession) {
       val connectionId = nextConnectionId()
       nextConnectionId() = connectionId + 1
-      Txn.afterCommit(_ => {
+      Txn.afterCommit { _ =>
         implicit def catcher: Catcher[Unit] = PartialFunction.empty
         for (socket <- connect()) {
           logger.fine(fast"bcp client connect server success, socket: ${socket}")
@@ -114,11 +114,11 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
           logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
           addStream(connectionId, stream)
         }
-      })
+      }
     }
   }
 
-  private final def closeConnection(connectionId: Int, connection: BcpClient.Connection) {
+  private final def checkFinishConnection(connectionId: Int, connection: BcpClient.Connection) {
     atomic { implicit txn =>
       if (connections.size > 1) {
         finishConnection(connectionId, connection)

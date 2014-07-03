@@ -342,10 +342,10 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def enqueueFinish(connection: Connection)(implicit txn: InTxn) {
     connection.unconfirmedPackets.transform(_.enqueue(Finish))
     val stream = connection.stream()
-    Txn.afterCommit(_ => {
+    Txn.afterCommit { _ =>
       BcpIo.enqueue(stream, Finish)
       stream.flush()
-    })
+    }
     connection.isFinishSent() = true
   }
 
@@ -613,11 +613,11 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private def resetHeartBeatTimer(stream: Stream)(implicit txn: InTxn) {
     val oldTimer = stream.heartBeatTimer()
-    Txn.afterCommit(_ => {
+    Txn.afterCommit { _ =>
       if (oldTimer != null) {
         oldTimer.cancel(false)
       }
-    })
+    }
     val newTimer =
       internalExecutor.scheduleWithFixedDelay(
         stream,
