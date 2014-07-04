@@ -90,8 +90,14 @@ abstract class BcpServer {
   protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
     val stream = new BcpServer.Stream(socket)
-    implicit def catcher: Catcher[Unit] = PartialFunction.empty
-    for (ConnectionHead(sessionId, connectionId) <- BcpIo.receiveHead(stream)) {
+    implicit def catcher: Catcher[Unit] = {
+      case e: Exception => {
+        logger.warning(e.getMessage())
+      }
+    }
+    val connectFuture = Future {
+      val head = BcpIo.receiveHead(stream).await
+      val ConnectionHead(sessionId, connectionId) = head
       logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
@@ -108,6 +114,7 @@ abstract class BcpServer {
         session.addStream(connectionId, stream)
       }
     }
+    for (_ <- connectFuture) {}
   }
 
 }
