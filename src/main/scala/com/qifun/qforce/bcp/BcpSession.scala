@@ -113,7 +113,7 @@ private[bcp] object BcpSession {
 
   private[bcp]type BoxedSessionId = WrappedArray[Byte]
 
-  private[bcp] abstract class Connection[Stream <: BcpSession.Stream] {
+  private[bcp] class Connection[Stream <: BcpSession.Stream] {
 
     val stream = Ref.make[Stream]
 
