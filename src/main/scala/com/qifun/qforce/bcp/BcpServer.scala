@@ -41,8 +41,6 @@ object BcpServer {
     // 服务端专有的数据结构
   }
 
-  type Session = BcpSession[BcpServer.Stream, BcpServer.Connection]
-
 }
 
 /**
@@ -53,7 +51,7 @@ abstract class BcpServer {
   import BcpServer.appender
   import BcpServer.formatter
 
-  trait Session extends BcpServer.Session {
+  trait Session extends BcpSession[BcpServer.Stream, BcpServer.Connection] {
 
     override private[bcp] final def newConnection = new BcpServer.Connection
 
