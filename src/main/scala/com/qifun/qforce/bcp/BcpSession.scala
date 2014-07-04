@@ -238,7 +238,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           Txn.afterCommit(_ => BcpIo.enqueue(stream, pack))
           connection.unconfirmedPackets.transform(_.enqueue(pack))
         }
-        resetHeartBeatTimer(stream)
         Txn.afterCommit(_ => stream.flush())
         Txn.afterCommit(_ => available())
         if (packQueue.isEmpty) {
@@ -613,11 +612,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private def resetHeartBeatTimer(stream: Stream)(implicit txn: InTxn) {
     val oldTimer = stream.heartBeatTimer()
-    Txn.afterCommit { _ =>
-      if (oldTimer != null) {
-        oldTimer.cancel(false)
-      }
-    }
+    Txn.afterCommit(_ => oldTimer.cancel(false))
     val newTimer =
       internalExecutor.scheduleWithFixedDelay(
         stream,

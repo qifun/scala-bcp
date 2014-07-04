@@ -45,7 +45,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   override private[bcp] final def internalExecutor: ScheduledExecutorService = executor
 
-  override private[bcp] final def release()(implicit txn: InTxn) {}
+  override private[bcp] final def release()(implicit txn: InTxn) {
+    isShutedDown() = true
+  }
 
   override private[bcp] final def busy(connectionId: Int, connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.info("the connection is busy!")
@@ -60,7 +62,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       val newBusyTimer = internalExecutor.schedule(new Runnable() {
         def run() {
           logger.info("client connect server again")
-          internalConnect()
+          increaseConnection()
         }
       }, BusyTimeout.length, BusyTimeout.unit)
       Txn.afterRollback(_ => newBusyTimer.cancel(false))
@@ -100,8 +102,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
   private val isConnecting = Ref(false)
+  private val isShutedDown = Ref(false)
 
-  private final def internalConnect()(implicit txn: InTxn) {
+  private final def increaseConnection()(implicit txn: InTxn) {
     if (!isConnecting() &&
       connections.size <= MaxConnectionsPerSession &&
       (sendingQueue().isLeft || !sendingQueue().right.exists(_ == AllConfirmed))) {
@@ -113,12 +116,18 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
         for (socket <- connect()) {
           logger.fine(fast"bcp client connect server success, socket: ${socket}")
           val stream = new BcpClient.Stream(socket)
-          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
-          stream.flush()
-          logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
-          addStream(connectionId, stream)
           atomic { implicit txn =>
-            isConnecting() = false
+            if (!isShutedDown()) {
+              Txn.afterCommit { _ =>
+                BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+                stream.flush()
+                addStream(connectionId, stream)
+                logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
+              }
+              isConnecting() = false
+            } else {
+              socket.close()
+            }
           }
         }
       }
@@ -138,7 +147,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       val secureRandom = new SecureRandom
       secureRandom.setSeed(secureRandom.generateSeed(20))
       secureRandom.nextBytes(sessionId)
-      internalConnect()
+      increaseConnection()
     }
   }
 
