@@ -34,29 +34,37 @@ object BcpServer {
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 
   private[BcpServer] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
-    // TODO: 服务端专有的数据结构
-
+    // 服务端专有的数据结构
   }
 
   private[BcpServer] final class Connection extends BcpSession.Connection[Stream] {
+    // 服务端专有的数据结构
   }
 
-  trait Session extends BcpSession[Stream, Connection] {
+}
 
-    override private[bcp] final def newConnection = new Connection
+/**
+ * 处理BCP协议的服务器。
+ */
+abstract class BcpServer {
+  import BcpServer.logger
+  import BcpServer.appender
+  import BcpServer.formatter
+
+  trait Session extends BcpSession[BcpServer.Stream, BcpServer.Connection] {
+
+    override private[bcp] final def newConnection = new BcpServer.Connection
 
     private[BcpServer] final def internalOpen() {
       open()
     }
 
-    private[BcpServer] final var sessionId: Array[Byte] = null
+    protected val sessionId: Array[Byte]
 
-    private[BcpServer] final var bcpServer: BcpServer[_ >: this.type] = null
-
-    override private[bcp] final def internalExecutor = bcpServer.executor
+    override private[bcp] final def internalExecutor = executor
 
     override private[bcp] final def release()(implicit txn: InTxn) {
-      val removedSessionOption = bcpServer.sessions.remove(sessionId)
+      val removedSessionOption = sessions.remove(sessionId)
       assert(removedSessionOption == Some(Session.this))
     }
 
@@ -65,25 +73,17 @@ object BcpServer {
 
     override private[bcp] final def idle(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
     }
-    
-      
-  override private[bcp] def close(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
-  }
+
+    override private[bcp] def close(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    }
 
   }
-}
-
-/**
- * 处理BCP协议的服务器。
- */
-abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
-  import BcpServer.logger
-  import BcpServer.appender
-  import BcpServer.formatter
 
   protected def executor: ScheduledExecutorService
 
   private val sessions = TMap.empty[BoxedSessionId, Session]
+
+  protected def newSession(sessionId: Array[Byte]): Session
 
   protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
@@ -94,9 +94,7 @@ abstract class BcpServer[Session <: BcpServer.Session: ClassTag] {
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
           case None => {
-            val session = classTag[Session].runtimeClass.newInstance().asInstanceOf[Session]
-            session.sessionId = sessionId
-            session.bcpServer = this
+            val session = newSession(sessionId)
             sessions(sessionId) = session
             Txn.afterCommit(_ => session.internalOpen())
             session
