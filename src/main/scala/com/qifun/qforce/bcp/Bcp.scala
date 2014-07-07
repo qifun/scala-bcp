@@ -110,7 +110,7 @@ object Bcp {
    * 
    * @group Constants
    */
-  final val BusyTimeout = 300.milliseconds
+  final val BusyTimeout = 3000.milliseconds
   
   /**
    * 连接在idle状态多长时间就关闭链接

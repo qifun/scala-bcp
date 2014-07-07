@@ -638,29 +638,27 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private[bcp] def close(connectionId: Int, connection: Connection)(implicit txn: InTxn): Unit
 
-  private[bcp] final def addStream(connectionId: Int, stream: Stream) {
-    atomic { implicit txn =>
-      if (connections.size >= MaxConnectionsPerSession) {
-        stream.interrupt()
-      }
-      val connection = connections.getOrElseUpdate(connectionId, newConnection)
-      lastConnectionId() = connectionId
-      if (connection.stream() == null) {
-        connection.stream() = stream
-        addOpenConnection(connection)
-        Txn.afterCommit(_ => startReceive(connectionId, connection, stream))
-        val timer =
-          internalExecutor.scheduleWithFixedDelay(
-            stream,
-            HeartBeatDelay.length,
-            HeartBeatDelay.length,
-            HeartBeatDelay.unit)
-        Txn.afterRollback(_ => timer.cancel(false))
-        stream.heartBeatTimer() = timer
-      } else {
-        logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
-        stream.interrupt()
-      }
+  private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
+    if (connections.size >= MaxConnectionsPerSession) {
+      stream.interrupt()
+    }
+    val connection = connections.getOrElseUpdate(connectionId, newConnection)
+    lastConnectionId() = connectionId
+    if (connection.stream() == null) {
+      connection.stream() = stream
+      addOpenConnection(connection)
+      Txn.afterCommit(_ => startReceive(connectionId, connection, stream))
+      val timer =
+        internalExecutor.scheduleWithFixedDelay(
+          stream,
+          HeartBeatDelay.length,
+          HeartBeatDelay.length,
+          HeartBeatDelay.unit)
+      Txn.afterRollback(_ => timer.cancel(false))
+      stream.heartBeatTimer() = timer
+    } else {
+      logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
+      stream.interrupt()
     }
   }
 
