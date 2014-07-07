@@ -55,10 +55,6 @@ abstract class BcpServer {
 
     override private[bcp] final def newConnection = new BcpServer.Connection
 
-    private[BcpServer] final def internalOpen() {
-      open()
-    }
-
     protected val sessionId: Array[Byte]
 
     override private[bcp] final def internalExecutor = executor
@@ -75,6 +71,15 @@ abstract class BcpServer {
     }
 
     override private[bcp] def close(connectionId: Int, connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    }
+
+    /**
+     * 每一次触发表示与对端建立了一次新的会话。
+     */
+    protected def accepted()
+
+    private[BcpServer] final def internalAccepted(): Unit = {
+      accepted()
     }
 
   }
@@ -96,7 +101,7 @@ abstract class BcpServer {
           case None => {
             val session = newSession(sessionId)
             sessions(sessionId) = session
-            Txn.afterCommit(_ => session.internalOpen())
+            Txn.afterCommit(_ => session.internalAccepted())
             session
           }
           case Some(session) => {

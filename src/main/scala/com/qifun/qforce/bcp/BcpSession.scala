@@ -177,11 +177,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private[bcp] def internalExecutor: ScheduledExecutorService
 
   /**
-   * 每一次触发表示与对端建立了一次新的会话。
-   */
-  protected def open()
-
-  /**
    * 本事件触发时，本[[BcpSession]]的所有TCP连接都已经断线。
    *
    * 即使所有TCP连接都已经断线，本[[BcpSession]]占用的资源仍然不会释放。
