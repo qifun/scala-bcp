@@ -63,7 +63,7 @@ class BcpTest {
 
       override final def available(): Unit = {}
 
-      override final def open(): Unit = {}
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
@@ -105,8 +105,6 @@ class BcpTest {
       }
 
       override final def executor = new ScheduledThreadPoolExecutor(2)
-
-      override final def open(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
