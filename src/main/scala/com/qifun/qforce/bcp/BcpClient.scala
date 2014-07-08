@@ -104,6 +104,25 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   private val isConnecting = Ref(false)
   private val isShutedDown = Ref(false)
 
+  private def afterConnect(socket: AsynchronousSocketChannel, connectionId: Int): Future[Unit] = Future {
+    logger.fine(fast"bcp client connect server success, socket: ${socket}")
+    val stream = new BcpClient.Stream(socket)
+    atomic { implicit txn =>
+      if (!isShutedDown()) {
+        Txn.afterCommit { _ =>
+          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+          logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
+        }
+        addStream(connectionId, stream)
+        isConnecting() = false
+      } else {
+        socket.close()
+      }
+    }
+    stream.flush()
+
+  }
+
   private final def increaseConnection()(implicit txn: InTxn) {
     if (!isConnecting() &&
       connections.size <= MaxConnectionsPerSession &&
@@ -112,23 +131,17 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       val connectionId = nextConnectionId()
       nextConnectionId() = connectionId + 1
       Txn.afterCommit { _ =>
-        implicit def catcher: Catcher[Unit] = PartialFunction.empty
-        for (socket <- connect()) {
-          logger.fine(fast"bcp client connect server success, socket: ${socket}")
-          val stream = new BcpClient.Stream(socket)
-          atomic { implicit txn =>
-            if (!isShutedDown()) {
-              Txn.afterCommit { _ =>
-                BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
-                logger.fine(fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
-              }
-              addStream(connectionId, stream)
-              isConnecting() = false
-            } else {
-              socket.close()
-            }
+        val connectFuture = Future {
+          val socket = connect().await
+          afterConnect(socket, connectionId).await
+        }
+        implicit def catcher: Catcher[Unit] = {
+          case e: Exception => {
+            logger.severe(e)
           }
-          stream.flush()
+        }
+        for (_ <- connectFuture) {
+          logger.fine("Increase connection success.")
         }
       }
     }

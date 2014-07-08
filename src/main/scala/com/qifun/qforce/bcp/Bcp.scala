@@ -20,7 +20,7 @@ import java.nio.ByteBuffer
  * 这种情况下，BCP会暴力杀死底层TCP连接，强制重建TCP连接，暴力重发数据，避免丢失数据并减少延时。
  *
  * BCP和TCP都属于面向连接会话的协议。
- * 但另一方面，但BCP数据不是TCP那样的流，而以[[Packet]]为单位。
+ * 但另一方面，BCP数据不是TCP那样的流，而以[[Packet]]为单位。
  * BCP协议不保证接收方收取[[Packet]]的顺序和发送方发出[[Packet]]的顺序一致。
  * 这是因为，一条BCP会话，可能会对应多达[[MaxConnectionsPerSession]]个底层TCP连接，
  * 而这几条底层TCP连接的延时可能并不相同。
@@ -39,13 +39,14 @@ import java.nio.ByteBuffer
  *     都没有[[Packet]]需要发送，那么发送一个[[HeartBeat]]到对端。
  *  1. 如果客户端或服务端连续[[ReadingTimeout]]都收不到任何数据，
  *     就认为这个TCP连接已经没救了，就关闭这个TCP连接。
- *  1. 当客户端认为已有底层TCP连接速度太慢时，客户端可以发起新的TCP连接，
+ *  1. 当客户端发送一个包，并超过[[BusyTimeout]]时间收不到对端都回应的[[Acknowledge]]时，
+ *     就认为已有底层TCP连接速度太慢，客户端可以发起新的TCP连接，
  *     把一部分[[Data]]放到新的TCP连接上发送。
  *  1. 新增TCP连接与首个TCP一样，仍然属于同一会话，
  *     客户端也需要在连接建立后发送[[ConnectionHead]]。
  *     但此处的会话ID应当重用原有的会话ID，不要生成新ID。
- *  1. 如果客户端发现某一会话中的TCP连接长期空闲，
- *     那么客户端可以向服务端发送[[Finish]]，关掉一部分TCP连接。
+ *  1. 如果客户端发现某一会话中的TCP连接超过[[IdleTimeout]]时间没有发送任何数据，
+ *     且该连接不是最后一条连接，那么客户端可以向服务端发送[[Finish]]，关掉这条TCP连接。
  *  1. 服务器收到[[Finish]]时，应当回复[[Acknowledge]]，然后关掉底层连接。
  *  1. 如果一个底层TCP连接因为超时或者别的原因异常中断，
  *     那么每一端都必须在同一会话的其他TCP连接上，
@@ -110,7 +111,7 @@ object Bcp {
    * 
    * @group Constants
    */
-  final val BusyTimeout = 3000.milliseconds
+  final val BusyTimeout = 300.milliseconds
   
   /**
    * 连接在idle状态多长时间就关闭链接

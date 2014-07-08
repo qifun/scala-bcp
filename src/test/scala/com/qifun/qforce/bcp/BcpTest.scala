@@ -1,6 +1,7 @@
 package com.qifun.qforce.bcp
 
-import org.junit.Test
+import org.junit._
+import Assert._
 import java.nio.channels.AsynchronousSocketChannel
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.nio.ByteBuffer
@@ -20,8 +21,18 @@ import scala.util.Try
 import scala.reflect.ClassTag
 import scala.util.Success
 import scala.util.Failure
+import java.nio.channels.ShutdownChannelGroupException
+import java.io.IOException
+import scala.concurrent.stm.Ref
+import scala.concurrent.stm._
+import java.util.concurrent.TimeUnit
+
+object BcpTest {
+  private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
+}
 
 class BcpTest {
+  import BcpTest.{ logger, formatter, appender }
 
   abstract class TestServer extends BcpServer {
 
@@ -34,21 +45,37 @@ class BcpTest {
     protected def acceptFailed(throwable: Throwable): Unit
 
     private def startAccept(serverSocket: AsynchronousServerSocketChannel) {
-      serverSocket.accept(this, new CompletionHandler[AsynchronousSocketChannel, TestServer] {
-        def completed(newSocket: java.nio.channels.AsynchronousSocketChannel, server: TestServer): Unit = {
-          addIncomingSocket(newSocket)
-          startAccept(serverSocket)
-        }
-        def failed(throwable: Throwable, server: TestServer): Unit = {
-          acceptFailed(throwable)
-        }
-      })
+      try {
+        serverSocket.accept(this, new CompletionHandler[AsynchronousSocketChannel, TestServer] {
+          def completed(newSocket: java.nio.channels.AsynchronousSocketChannel, server: TestServer): Unit = {
+            addIncomingSocket(newSocket)
+            startAccept(serverSocket)
+          }
+          def failed(throwable: Throwable, server: TestServer): Unit = {
+            throwable match {
+              case e: IOException =>
+                logger.fine(e)
+              case _ =>
+                acceptFailed(throwable)
+            }
+          }
+        })
+      } catch {
+        case e: ShutdownChannelGroupException =>
+          logger.fine(e)
+        case e: Exception =>
+          acceptFailed(e)
+      }
     }
 
     final def clear() {
       serverSocket.close()
+      channelGroup.shutdown()
+      if (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
+        executor.shutdownNow()
+      }
     }
-
+    
     serverSocket.bind(null)
     startAccept(serverSocket)
   }
@@ -58,12 +85,27 @@ class BcpTest {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
+    var serverSession: Ref[Option[ServerSession]] = Ref(None)
 
     abstract class ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {}
+      override final def accepted(): Unit = {
+        atomic { implicit txn =>
+          serverSession() match {
+            case None =>
+              serverSession() = Some(this)
+            case _ =>
+              Txn.afterCommit { _ =>
+                lock.synchronized {
+                  serverResult = Some(Failure(new Exception("Server session already exist")))
+                  lock.notify()
+                }
+              }
+          }
+        }
+      }
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
@@ -78,6 +120,10 @@ class BcpTest {
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
+
+      final def shutDownSession() = {
+        shutDown()
+      }
 
     }
 
@@ -99,7 +145,7 @@ class BcpTest {
       override final def available(): Unit = {}
 
       override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
-        val socket = AsynchronousSocketChannel.open()
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
         Nio2Future.connect(socket, new InetSocketAddress("localhost", server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
         socket
       }
@@ -142,7 +188,123 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
+    atomic { implicit txn =>
+      serverSession() match {
+        case Some(session) =>
+          Txn.afterCommit(_ => session.shutDownSession())
+        case _ =>
+      }
+    }
+    client.shutDown()
     server.clear()
   }
 
+  @Test
+  def shutDownTest {
+    val lock = new AnyRef
+    @volatile var shutedDownResult: Option[Try[Boolean]] = None
+    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+
+    abstract class ServerSession { _: BcpServer#Session =>
+
+      override final def available(): Unit = {}
+
+      override final def accepted(): Unit = {
+        atomic { implicit txn =>
+          serverSession() match {
+            case None =>
+              serverSession() = Some(this)
+            case _ =>
+              Txn.afterCommit { _ =>
+                lock.synchronized {
+                  shutedDownResult = Some(Failure(new Exception("Server session already exist")))
+                  lock.notify()
+                }
+              }
+          }
+        }
+      }
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def shutedDown(): Unit = {
+      }
+
+      override final def unavailable(): Unit = {}
+
+      final def shutDownSession() = {
+        shutDown()
+      }
+
+    }
+
+    val server = new TestServer {
+      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
+        override protected final val sessionId = id
+      }
+
+      override protected final def acceptFailed(throwable: Throwable): Unit = {
+        lock.synchronized {
+          shutedDownResult = Some(Failure(throwable))
+          lock.notify()
+        }
+      }
+    }
+
+    val client = new BcpClient {
+
+      override final def available(): Unit = {
+      }
+
+      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
+        val socket = AsynchronousSocketChannel.open()
+        Nio2Future.connect(socket, new InetSocketAddress("localhost", server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
+        socket
+      }
+
+      override final def executor = new ScheduledThreadPoolExecutor(2)
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def shutedDown(): Unit = {
+        lock.synchronized {
+          shutedDownResult = Some(Success(true))
+          lock.notify()
+        }
+      }
+
+      override final def unavailable(): Unit = {}
+
+    }
+
+    client.shutDown()
+
+    lock.synchronized {
+      while (shutedDownResult == None) {
+        lock.wait()
+      }
+    }
+
+    val Some(clientShutedDownSome) = shutedDownResult
+
+    clientShutedDownSome match {
+      case Success(u) => assertEquals(u, true)
+      case Failure(e) => throw e
+    }
+
+    atomic { implicit txn =>
+      serverSession() match {
+        case Some(session) =>
+          Txn.afterCommit(_ => session.shutDownSession())
+        case _ =>
+      }
+    }
+    server.clear()
+  }
+  
+  @Test
+  def closeConnectionTest {
+    
+  }
+  
 }

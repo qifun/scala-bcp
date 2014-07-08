@@ -28,6 +28,7 @@ import com.qifun.qforce.bcp.Bcp._
 import BcpServer._
 import com.qifun.qforce.bcp.BcpSession._
 import com.dongxiguo.fastring.Fastring.Implicits._
+import java.io.EOFException
 
 object BcpServer {
 
@@ -93,12 +94,7 @@ abstract class BcpServer {
   protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
     val stream = new BcpServer.Stream(socket)
-    implicit def catcher: Catcher[Unit] = {
-      case e: Exception => {
-        logger.warning(e.getMessage())
-      }
-    }
-    val connectFuture = Future {
+    val acceptFuture = Future {
       val head = BcpIo.receiveHead(stream).await
       val ConnectionHead(sessionId, connectionId) = head
       logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
@@ -117,7 +113,14 @@ abstract class BcpServer {
         session.addStream(connectionId, stream)
       }
     }
-    for (_ <- connectFuture) {}
+    implicit def catcher: Catcher[Unit] = {
+      case e: Exception => {
+        logger.info(e)
+      }
+    }
+    for (_ <- acceptFuture) {
+      logger.fine("An connection is accepted.")
+    }
   }
 
 }
