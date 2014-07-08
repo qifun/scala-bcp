@@ -34,7 +34,7 @@ object BcpClient {
 }
 
 /**
- * BCP协议的客户端
+ * BCP协议客户端
  * 
  * 每个BCP客户端管理多个TCP连接，最多不超过[[Bcp.MaxConnectionsPerSession]]。
  * 
@@ -42,20 +42,12 @@ object BcpClient {
  * 
  * 对于每个TCP连接，有空闲、繁忙和迟缓三种状态：
  * 
- * <ul>
- *   <li>
- *     如果BCP客户端从某个TCP连接发出的所有[[Bcp.AcknowledgeRequired]]，都收到了对应的[[Bcp.Acknowledge]]，
- *     那么这个TCP连接是空闲状态。
- *   </li>
- *   <li>
- *     如果某个TCP连接，原本是空闲状态，接着发送了一个[[Bcp.AcknowledgeRequired]]，
- *     那么这个TCP连接变成繁忙状态。
- *   </li>
- *   <li>
- *     如果某个TCP连接的繁忙状态保持了[[Bcp.BusyTimeout]]，还没有变回空闲状态，
- *     那么这个TCP连接变成迟缓状态。
- *   </li>
- * </ul>
+ *  - 如果BCP客户端从某个TCP连接发出的所有[[Bcp.AcknowledgeRequired]]，都收到了对应的[[Bcp.Acknowledge]]，
+ *    那么这个TCP连接是空闲状态。
+ *  - 如果某个TCP连接，原本是空闲状态，接着发送了一个[[Bcp.AcknowledgeRequired]]，
+ *    那么这个TCP连接变成繁忙状态。
+ *  - 如果某个TCP连接的繁忙状态保持了[[Bcp.BusyTimeout]]，还没有变回空闲状态，
+ *    那么这个TCP连接变成迟缓状态。
  * 
  * 每当一个BCP客户端的所有TCP连接都变成迟缓状态，且BCP客户端管理的TCP连接数尚未达到上限，BCP客户端建立新TCP连接。
  * 
