@@ -17,6 +17,7 @@ import scala.util.control.Exception.Catcher
 import com.qifun.statelessFuture.Future
 import com.qifun.qforce.bcp.BcpException.DataTooBig
 import java.nio.channels.ClosedChannelException
+import java.nio.channels.ShutdownChannelGroupException
 
 private[bcp] object BcpSession {
 
@@ -584,7 +585,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
 
     implicit def catcher: Catcher[Unit] = {
-      case e: ClosedChannelException => {
+      case e @ (_: ClosedChannelException | _: ShutdownChannelGroupException) => {
         // 由于自己主动关闭连接而触发异常
         logger.fine(e)
         atomic { implicit txn =>
