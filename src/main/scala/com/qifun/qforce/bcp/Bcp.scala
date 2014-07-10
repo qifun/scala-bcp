@@ -105,20 +105,20 @@ object Bcp {
    * @group Constants
    */
   final val WritingTimeout = 1.seconds
-  
+
   /**
    * 连接在busy状态多长时间就新建链接
-   * 
+   *
    * @group Constants
    */
-  final val BusyTimeout = 300.milliseconds
-  
+  final val BusyTimeout = 500.milliseconds
+
   /**
    * 连接在idle状态多长时间就关闭链接
-   * 
+   *
    * @group Constants
    */
-  final val IdleTimeout = 60.seconds
+  final val IdleTimeout = 10.seconds
 
   /**
    * Session ID由多少字节构成
@@ -126,10 +126,10 @@ object Bcp {
    * @group Constants
    */
   final val NumBytesSessionId = 16
-  
+
   /**
    * 数据包上限是多少字节
-   * 
+   *
    * @group Constants
    */
   final val MaxDataSize = 100000
@@ -252,4 +252,12 @@ object Bcp {
     extends ServerToClient with ClientToServer {
     final val HeadByte: Byte = 9
   }
+
+  object ConnectionState extends Enumeration {
+    type ConnectionState = Value
+    val Idle = Value
+    val Busy = Value
+    val Slow = Value
+  }
+
 }

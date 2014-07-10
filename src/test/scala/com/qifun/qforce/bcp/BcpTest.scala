@@ -75,7 +75,7 @@ class BcpTest {
         executor.shutdownNow()
       }
     }
-    
+
     serverSocket.bind(null)
     startAccept(serverSocket)
   }
@@ -257,7 +257,7 @@ class BcpTest {
       }
 
       override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
-        val socket = AsynchronousSocketChannel.open()
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
         Nio2Future.connect(socket, new InetSocketAddress("localhost", server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
         socket
       }
@@ -301,10 +301,128 @@ class BcpTest {
     }
     server.clear()
   }
-  
+
   @Test
   def closeConnectionTest {
-    
+    val lock = new AnyRef
+    @volatile var serverReceivedResult: Option[Try[String]] = None
+    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+    var clientSocket: Option[AsynchronousSocketChannel] = None
+
+    abstract class ServerSession { _: BcpServer#Session =>
+
+      override final def available(): Unit = {}
+
+      override final def accepted(): Unit = {
+        atomic { implicit txn =>
+          serverSession() match {
+            case None =>
+              serverSession() = Some(this)
+            case _ =>
+              Txn.afterCommit { _ =>
+                lock.synchronized {
+                  serverReceivedResult = Some(Failure(new Exception("Server session already exist")))
+                  lock.notify()
+                }
+              }
+          }
+        }
+      }
+
+      override final def received(pack: ByteBuffer*): Unit = {
+        lock.synchronized {
+          val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
+          pack.head.get(bytes)
+          serverReceivedResult = Some(Success(new String(bytes, "UTF-8")))
+          send(ByteBuffer.wrap("pong".getBytes("UTF-8")))
+          lock.notify()
+        }
+      }
+
+      override final def shutedDown(): Unit = {
+      }
+
+      override final def unavailable(): Unit = {
+      }
+
+      final def shutDownSession() = {
+        shutDown()
+      }
+
+    }
+
+    val server = new TestServer {
+      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
+        override protected final val sessionId = id
+      }
+
+      override protected final def acceptFailed(throwable: Throwable): Unit = {
+        lock.synchronized {
+          serverReceivedResult = Some(Failure(throwable))
+          lock.notify()
+        }
+      }
+    }
+
+    val client = new BcpClient {
+
+      override final def available(): Unit = {
+        lock.synchronized {
+          lock.notify()
+        }
+      }
+
+      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
+        val socket = AsynchronousSocketChannel.open()
+        Nio2Future.connect(socket, new InetSocketAddress("localhost", server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
+        clientSocket = Some(socket)
+        socket
+      }
+
+      override final def executor = new ScheduledThreadPoolExecutor(2)
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {
+      }
+
+    }
+
+    // 等待连接成功
+    lock.synchronized {
+      while (clientSocket == None) {
+        lock.wait()
+      }
+    }
+
+    clientSocket match {
+      case Some(socket1) =>
+        socket1.close()
+        client.send(ByteBuffer.wrap("Hello bcp-server!".getBytes("UTF-8")))
+        lock.synchronized {
+          while (serverReceivedResult == None) {
+            lock.wait()
+          }
+        }
+        val Some(serverReceivedSome) = serverReceivedResult
+        serverReceivedSome match {
+          case Success(u) => assertEquals(u, "Hello bcp-server!")
+          case Failure(e) => throw e
+        }
+      case _ =>
+    }
+
+    atomic { implicit txn =>
+      serverSession() match {
+        case Some(session) =>
+          Txn.afterCommit(_ => session.shutDownSession())
+        case _ =>
+      }
+    }
+    client.shutDown()
+    server.clear()
   }
-  
+
 }
