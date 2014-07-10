@@ -373,7 +373,7 @@ class BcpTest {
       }
 
       override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
-        val socket = AsynchronousSocketChannel.open()
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
         Nio2Future.connect(socket, new InetSocketAddress("localhost", server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
         clientSocket = Some(socket)
         socket
