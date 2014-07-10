@@ -253,11 +253,24 @@ object Bcp {
     final val HeadByte: Byte = 9
   }
 
-  object ConnectionState extends Enumeration {
-    type ConnectionState = Value
-    val Idle = Value
-    val Busy = Value
-    val Slow = Value
-  }
+  /**
+   * @group ConnectionStates
+   */
+  sealed trait ConnectionState
+
+  /**
+   * @group ConnectionsStates
+   */
+  case object ConnectionIdle extends ConnectionState
+
+  /**
+   * @group ConnectionsStates
+   */
+  case object ConnectionBusy extends ConnectionState
+
+  /**
+   * @group ConnectionsStates
+   */
+  case object ConnectionSlow extends ConnectionState
 
 }

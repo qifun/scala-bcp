@@ -65,13 +65,13 @@ abstract class BcpServer {
       assert(removedSessionOption == Some(Session.this))
     }
 
-    override private[bcp] final def sendEvent(connection: Option[BcpServer.Connection])(implicit txn: InTxn): Unit = {
+    override private[bcp] final def busy(connection: Option[BcpServer.Connection])(implicit txn: InTxn): Unit = {
     }
 
-    override private[bcp] final def idleEvent(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    override private[bcp] final def idle(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
     }
 
-    override private[bcp] def closeEvent(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
+    override private[bcp] def close(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
     }
 
     /**
