@@ -83,38 +83,41 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     }
   }
 
-  override private[bcp] final def busy(busyConnection: Option[BcpClient.Connection])(implicit txn: InTxn): Unit = {
+  override private[bcp] final def busy(busyConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.info("the connection is busy!")
-    busyConnection match {
-      case Some(connection) =>
-        val oldBusyTimer = connection.stream().busyTimer()
-        if (oldBusyTimer == null || oldBusyTimer.isDone()) {
-          val newBusyTimer = internalExecutor.schedule(new Runnable() {
-            def run() {
-              try {
-                atomic { implicit txn =>
-                  connection.stream().connectionState() = ConnectionSlow
-                  increaseConnection()
-                }
-              } catch {
-                case e: Exception =>
-                  logger.severe(e)
+    val oldReconnectTimer = reconnectTimer()
+    if (oldReconnectTimer != null) {
+      reconnectTimer() = null
+      Txn.afterCommit(_ => oldReconnectTimer.cancel(false))
+    }
+    val oldBusyTimer = busyConnection.stream().busyTimer()
+    if (oldBusyTimer == null || oldBusyTimer.isDone()) {
+      val newBusyTimer = internalExecutor.schedule(new Runnable() {
+        def run() {
+          try {
+            atomic { implicit txn =>
+              if (busyConnection.stream() != null) {
+                busyConnection.stream().connectionState() = ConnectionSlow
               }
+              increaseConnection()
             }
-          }, BusyTimeout.length, BusyTimeout.unit)
-          Txn.afterRollback(_ => newBusyTimer.cancel(false))
-          connection.stream().busyTimer() = newBusyTimer
-          connection.stream().connectionState() = ConnectionBusy
-          // bcp-client 不是过剩状态
-          if (!(connections.size > 1 &&
-            connections.exists(_._2.stream().connectionState() == ConnectionIdle))) {
-            if (idleTimer() != null && !idleTimer().isDone()) {
-              Txn.afterCommit(_ => idleTimer().cancel(false))
-            }
+          } catch {
+            case e: Exception =>
+              logger.severe(e)
           }
         }
-      case None =>
-        startReconnectTimer()
+      }, BusyTimeout.length, BusyTimeout.unit)
+      Txn.afterRollback(_ => newBusyTimer.cancel(false))
+      busyConnection.stream().busyTimer() = newBusyTimer
+      busyConnection.stream().connectionState() = ConnectionBusy
+      // bcp-client 不是过剩状态
+      if (!(connections.size > 1 &&
+        connections.exists(connection =>
+          connection._2.stream() != null && connection._2.stream().connectionState() == ConnectionIdle))) {
+        if (idleTimer() != null && !idleTimer().isDone()) {
+          Txn.afterCommit(_ => idleTimer().cancel(false))
+        }
+      }
     }
   }
 
@@ -126,11 +129,20 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     checkFinishConnection()
   }
 
-  override private[bcp] final def close(connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
-    val busyTimer = connection.stream().busyTimer()
-    if (busyTimer != null) {
-      connection.stream().busyTimer() = null
-      Txn.afterCommit(_ => busyTimer.cancel(false))
+  override private[bcp] final def close(closeConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+    if (closeConnection.stream() != null) {
+      val busyTimer = closeConnection.stream().busyTimer()
+      if (busyTimer != null) {
+        closeConnection.stream().busyTimer() = null
+        Txn.afterCommit(_ => busyTimer.cancel(false))
+      }
+    }
+    if (connections.forall(connection =>
+      connection._2 == closeConnection || connection._2.stream() == null)) {
+      startReconnectTimer()
+    }
+    if (connections.size >= MaxConnectionsPerSession && connections.forall(_._2.stream() == null)) {
+      interrupt()
     }
   }
 
@@ -160,8 +172,10 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   private final def increaseConnection()(implicit txn: InTxn) {
     if (!isConnecting() &&
-      connections.size <= MaxConnectionsPerSession &&
-      connections.forall(_._2.stream().connectionState() == ConnectionSlow)) {
+      connections.size < MaxConnectionsPerSession &&
+      connections.count(_._2.stream() != null) < MaxActiveConnectionsPerSession &&
+      connections.forall(connection =>
+        connection._2.stream() == null || connection._2.stream().connectionState() == ConnectionSlow)) {
       isConnecting() = true
       val connectionId = nextConnectionId()
       nextConnectionId() = connectionId + 1
@@ -173,7 +187,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
         implicit def catcher: Catcher[Unit] = {
           case e: Exception => {
             logger.severe(e)
-            startReconnectTimer()
+            atomic { implicit txn =>
+              startReconnectTimer()
+            }
           }
         }
         for (_ <- connectFuture) {
@@ -185,15 +201,18 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   private final def checkFinishConnection()(implicit txn: InTxn) {
     if (connections.size > 1 &&
-      connections.exists(_._2.stream().connectionState() == ConnectionIdle)) { // 过剩状态
+      connections.exists(connection =>
+        connection._2.stream() != null && connection._2.stream().connectionState() == ConnectionIdle)) { // 过剩状态
       if (idleTimer() == null || idleTimer().isDone()) {
         val newIdleTimer = internalExecutor.schedule(new Runnable() {
           def run() {
             try {
               atomic { implicit txn =>
-                connections.find(_._2.stream().connectionState() == ConnectionIdle) match {
-                  case Some((connectionId, connection)) =>
-                    finishConnection(connectionId, connection)
+                connections.find(connection =>
+                  (connection._2.stream() != null) &&
+                    (connection._2.stream().connectionState() == ConnectionIdle)) match {
+                  case Some((connectionId, toFinishConnection)) =>
+                    finishConnection(connectionId, toFinishConnection)
                   case None =>
                 }
               }

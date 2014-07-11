@@ -29,6 +29,7 @@ import BcpServer._
 import com.qifun.qforce.bcp.BcpSession._
 import com.dongxiguo.fastring.Fastring.Implicits._
 import java.io.EOFException
+import com.sun.jndi.ldap.pool.Connections
 
 object BcpServer {
 
@@ -65,7 +66,7 @@ abstract class BcpServer {
       assert(removedSessionOption == Some(Session.this))
     }
 
-    override private[bcp] final def busy(connection: Option[BcpServer.Connection])(implicit txn: InTxn): Unit = {
+    override private[bcp] final def busy(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
     }
 
     override private[bcp] final def idle(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {

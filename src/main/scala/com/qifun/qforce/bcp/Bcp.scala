@@ -76,11 +76,18 @@ object Bcp {
   final val MaxOfflinePack = 200
 
   /**
-   * 每个会话最多允许多少个TCP连接
+   * 每个会话最多允许多少个活跃TCP连接
    *
    * @group Constants
    */
-  final val MaxConnectionsPerSession = 3
+  final val MaxActiveConnectionsPerSession = 3
+  
+  /**
+   * 每个会话最多允许多少个TCP连接，包括活跃TCP连接和还没有收到Finish但已经关闭的僵尸连接
+   * 
+   * @group Constants
+   */
+  final val MaxConnectionsPerSession = 5
 
   /**
    * 当一个TCP连接空闲多长时间没发送任何数据时，发一个心跳包

@@ -198,7 +198,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
    */
   protected def shutedDown()
 
-  //  protected def interrupted()
+  protected def interrupted()
 
   private[bcp] def release()(implicit txn: InTxn)
 
@@ -243,7 +243,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
         } else {
           sendingQueue() = Right(newSendingConnectionQueue + (System.currentTimeMillis -> Set(connection)))
-          busy(Some(connection))
+          busy(connection)
         }
       }
     }
@@ -314,7 +314,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           val (firstOpenConnection, restOpenConnections) = openConnections.splitAt(1)
           val connection = firstOpenConnection.head
           val stream = connection.stream()
-          busy(Some(connection))
+          busy(connection)
           Txn.afterCommit { _ =>
             BcpIo.enqueue(stream, newPack)
             stream.flush()
@@ -342,7 +342,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             sendingQueue() = Left(PacketQueue(queueLength + 1, packQueue.enqueue(newPack)))
           }
         }
-        busy(None)
         logger.fine("After left enqueue data, sendingQueue: " + sendingQueue())
     }
   }
@@ -369,7 +368,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
-      connection.stream() = null
       connections.remove(connectionId)
     }
   }
@@ -398,6 +396,9 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         for (openConnections <- sendingConnectionQueue.values; connection <- openConnections) {
           close(connection)
           val stream = connection.stream()
+          val heartBeatTimer = stream.heartBeatTimer()
+          heartBeatTimer.cancel(false)
+          stream.heartBeatTimer() = null
           connection.stream() = null
           assert(stream != null)
           // 直接关闭所有TCP连接，对端要是还没收到ShutDownInput的Acknowledge的话，只能靠TCP的CLOSE_WAIT机制了。
@@ -431,9 +432,19 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private def cleanUp(connectionId: Int, connection: Connection, stream: Stream)(implicit txn: InTxn) {
     removeOpenConnection(connection)
+    if (!connection.isFinishSent()) {
+      connection.unconfirmedPackets.transform(_.enqueue(Finish))
+      connection.isFinishSent() = true
+    }
+    close(connection)
+    connection.stream() = null
     val heartBeatTimer = stream.heartBeatTimer()
     stream.heartBeatTimer() = null
-    Txn.afterCommit(_ => heartBeatTimer.cancel(false))
+    Txn.afterCommit { _ =>
+      if (heartBeatTimer != null) {
+        heartBeatTimer.cancel(false)
+      }
+    }
     connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
       case (packId, Data(buffer)) => {
         enqueue(RetransmissionData(connectionId, packId, buffer))
@@ -488,7 +499,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               }
               case None => {
                 val lastConnectionId = this.lastConnectionId()
-                if (between(lastConnectionId, lastConnectionId + MaxConnectionsPerSession, dataConnectionId)) {
+                if (between(lastConnectionId, lastConnectionId + MaxActiveConnectionsPerSession, dataConnectionId)) {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
                   val c = newConnection
                   connections(dataConnectionId) = c
@@ -561,7 +572,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               }
               case None => {
                 val lastConnectionId = this.lastConnectionId()
-                if (between(lastConnectionId, lastConnectionId + MaxConnectionsPerSession, connectionId)) {
+                if (between(lastConnectionId, lastConnectionId + MaxActiveConnectionsPerSession, connectionId)) {
                   // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
                   val c = newConnection
                   connections(finishConnectionId) = c
@@ -640,10 +651,24 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     stream.heartBeatTimer() = newTimer
   }
 
-  /*  final def interrupt() {
-    ???
+  private[bcp] final def interrupt() {
+    atomic { implicit txn: InTxn =>
+      sendingQueue() = Left(PacketQueue())
+      for ((_, connection) <- connections) {
+        if (connection.stream() != null) {
+          val oldHeartBeatTimer = connection.stream().heartBeatTimer()
+          Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
+        }
+        connection.unconfirmedPackets() = Queue.empty
+        close(connection)
+        connection.stream().interrupt
+        connection.stream() = null
+      }
+      connections.clear()
+      Txn.afterCommit(_ => interrupted())
+    }
   }
-*/
+
   final def shutDown() {
     atomic { implicit txn: InTxn =>
       checkShutDown()
@@ -657,7 +682,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   }
 
   /** 当有数据发出时触发本事件 */
-  private[bcp] def busy(connection: Option[Connection])(implicit txn: InTxn): Unit
+  private[bcp] def busy(connection: Connection)(implicit txn: InTxn): Unit
 
   /** 当所有的数据都收到[[Bcp.Acknowledge]]时触发本事件 */
   private[bcp] def idle(connection: Connection)(implicit txn: InTxn): Unit
@@ -665,8 +690,20 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private[bcp] def close(connection: Connection)(implicit txn: InTxn): Unit
 
   private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
-    if (connections.size >= MaxConnectionsPerSession) {
+    val oldLastConnectionId = lastConnectionId()
+    if (connections.size >= MaxConnectionsPerSession ||
+      connections.count(_._2.stream() != null) >= MaxActiveConnectionsPerSession) {
       stream.interrupt()
+    }
+    if (connectionId < oldLastConnectionId ||
+      connectionId - oldLastConnectionId + connections.size > MaxConnectionsPerSession) {
+      interrupt()
+    }
+    if (connectionId > oldLastConnectionId + 1) {
+      for (id <- oldLastConnectionId + 1 until connectionId) {
+        val c = newConnection
+        connections(id) = c
+      }
     }
     val connection = connections.getOrElseUpdate(connectionId, newConnection)
     lastConnectionId() = connectionId

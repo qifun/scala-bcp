@@ -117,6 +117,8 @@ class BcpTest {
         }
       }
 
+      override final def interrupted(): Unit = {}
+
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
@@ -164,6 +166,8 @@ class BcpTest {
           lock.notify()
         }
       }
+
+      override final def interrupted(): Unit = {}
 
       override final def shutedDown(): Unit = {}
 
@@ -231,8 +235,9 @@ class BcpTest {
 
       override final def received(pack: ByteBuffer*): Unit = {}
 
-      override final def shutedDown(): Unit = {
-      }
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
 
@@ -273,6 +278,8 @@ class BcpTest {
       override final def executor = new ScheduledThreadPoolExecutor(2)
 
       override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def interrupted(): Unit = {}
 
       override final def shutedDown(): Unit = {
         lock.synchronized {
@@ -347,11 +354,11 @@ class BcpTest {
         }
       }
 
-      override final def shutedDown(): Unit = {
-      }
+      override final def interrupted(): Unit = {}
 
-      override final def unavailable(): Unit = {
-      }
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {}
 
       final def shutDownSession() = {
         shutDown()
@@ -394,6 +401,8 @@ class BcpTest {
       override final def executor = new ScheduledThreadPoolExecutor(2)
 
       override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def interrupted(): Unit = {}
 
       override final def shutedDown(): Unit = {}
 
