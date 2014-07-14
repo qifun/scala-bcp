@@ -266,6 +266,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           case Some((time, openConnections)) => // 在发送队列中，connection所对应的优先级时间有多条连接
             val newOpenConnections = openConnections - connection
             sendingQueue() = Right(sendingConnectionQueue + (time -> newOpenConnections))
+          case None =>
         }
       case left: Left[_, _] =>
     }
