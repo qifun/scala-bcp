@@ -418,21 +418,19 @@ class BcpTest {
       }
     }
 
-    clientSocket match {
-      case Some(socket1) =>
-        socket1.close()
-        client.send(ByteBuffer.wrap("Hello bcp-server!".getBytes("UTF-8")))
-        lock.synchronized {
-          while (serverReceivedResult == None) {
-            lock.wait()
-          }
-        }
-        val Some(serverReceivedSome) = serverReceivedResult
-        serverReceivedSome match {
-          case Success(u) => assertEquals(u, "Hello bcp-server!")
-          case Failure(e) => throw e
-        }
-      case _ =>
+    val Some(socket1) = clientSocket
+
+    socket1.close()
+    client.send(ByteBuffer.wrap("Hello bcp-server!".getBytes("UTF-8")))
+    lock.synchronized {
+      while (serverReceivedResult == None) {
+        lock.wait()
+      }
+    }
+    val Some(serverReceivedSome) = serverReceivedResult
+    serverReceivedSome match {
+      case Success(u) => assertEquals(u, "Hello bcp-server!")
+      case Failure(e) => throw e
     }
 
     atomic { implicit txn =>
@@ -552,32 +550,30 @@ class BcpTest {
       }
     }
 
-    clientSocket match {
-      case Some(socket1) =>
-        client.send(ByteBuffer.wrap("a".getBytes("UTF-8")))
-        client.send(ByteBuffer.wrap("b".getBytes("UTF-8")))
-        lock.synchronized {
-          while (serverReceivedResults == None ||
-            (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 2)) {
-            lock.wait()
-          }
-        }
-        socket1.close()
-        if (serverReceivedResults.get.isSuccess) {
-          client.send(ByteBuffer.wrap("c".getBytes("UTF-8")))
-          client.send(ByteBuffer.wrap("d".getBytes("UTF-8")))
-        }
-        lock.synchronized {
-          while (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 4) {
-            lock.wait()
-          }
-        }
-        val Some(serverReceivedSome) = serverReceivedResults
-        serverReceivedSome match {
-          case Success(u) => assertEquals(u, Seq("a", "b", "c", "d"))
-          case Failure(e) => throw e
-        }
-      case _ =>
+    val Some(socket1) = clientSocket
+
+    client.send(ByteBuffer.wrap("a".getBytes("UTF-8")))
+    client.send(ByteBuffer.wrap("b".getBytes("UTF-8")))
+    lock.synchronized {
+      while (serverReceivedResults == None ||
+        (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 2)) {
+        lock.wait()
+      }
+    }
+    socket1.close()
+    if (serverReceivedResults.get.isSuccess) {
+      client.send(ByteBuffer.wrap("c".getBytes("UTF-8")))
+      client.send(ByteBuffer.wrap("d".getBytes("UTF-8")))
+    }
+    lock.synchronized {
+      while (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 4) {
+        lock.wait()
+      }
+    }
+    val Some(serverReceivedSome) = serverReceivedResults
+    serverReceivedSome match {
+      case Success(u) => assertEquals(u, Seq("a", "b", "c", "d"))
+      case Failure(e) => throw e
     }
 
     atomic { implicit txn =>
