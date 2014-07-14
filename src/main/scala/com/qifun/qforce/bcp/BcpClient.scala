@@ -141,7 +141,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       connection._2 == closeConnection || connection._2.stream() == null)) {
       startReconnectTimer()
     }
-    if (connections.size >= MaxConnectionsPerSession && connections.forall(_._2.stream() == null)) {
+    if (connections.size >= MaxConnectionsPerSession &&
+      connections.forall(connection =>
+        connection._2 == closeConnection || connection._2.stream() == null)) {
       interrupt()
     }
   }

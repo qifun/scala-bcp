@@ -433,19 +433,22 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
-  private def cleanUp(connectionId: Int, connection: Connection, stream: Stream)(implicit txn: InTxn) {
+  private def cleanUp(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
     removeOpenConnection(connection)
     if (!connection.isFinishSent()) {
       connection.unconfirmedPackets.transform(_.enqueue(Finish))
       connection.isFinishSent() = true
     }
     close(connection)
+    val stream = connection.stream()
     connection.stream() = null
-    val heartBeatTimer = stream.heartBeatTimer()
-    stream.heartBeatTimer() = null
-    Txn.afterCommit { _ =>
-      if (heartBeatTimer != null) {
-        heartBeatTimer.cancel(false)
+    if (stream != null) {
+      val heartBeatTimer = stream.heartBeatTimer()
+      stream.heartBeatTimer() = null
+      Txn.afterCommit { _ =>
+        if (heartBeatTimer != null) {
+          heartBeatTimer.cancel(false)
+        }
       }
     }
     connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
@@ -561,7 +564,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             }
             val packId = connection.numDataReceived()
             connection.finishIdReceived() = Some(packId)
-            cleanUp(connectionId, connection, stream)
+            cleanUp(connectionId, connection)
           }
           stream.shutDown()
         }
@@ -572,6 +575,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             connections.get(finishConnectionId) match {
               case Some(finishConnection) => {
                 retransmissionFinishReceived(finishConnectionId, finishConnection, packId)
+                cleanUp(finishConnectionId, finishConnection)
               }
               case None => {
                 val lastConnectionId = this.lastConnectionId()
@@ -580,6 +584,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                   val c = newConnection
                   connections(finishConnectionId) = c
                   retransmissionFinishReceived(finishConnectionId, c, packId)
+                  cleanUp(finishConnectionId, c)
                 } else {
                   // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                 }
@@ -624,7 +629,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         // 由于自己主动关闭连接而触发异常
         logger.fine(e)
         atomic { implicit txn =>
-          cleanUp(connectionId, connection, stream)
+          cleanUp(connectionId, connection)
         }
       }
       case e: Exception => {
@@ -632,7 +637,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         logger.warning(e)
         stream.interrupt()
         atomic { implicit txn =>
-          cleanUp(connectionId, connection, stream)
+          cleanUp(connectionId, connection)
         }
       }
     }
@@ -661,6 +666,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     atomic { implicit txn: InTxn =>
       sendingQueue() = Left(PacketQueue())
       for ((_, connection) <- connections) {
+        connection.isShutedDown() = true
         if (connection.stream() != null) {
           val oldHeartBeatTimer = connection.stream().heartBeatTimer()
           Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
