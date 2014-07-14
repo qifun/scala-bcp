@@ -123,6 +123,8 @@ private[bcp] object BcpSession {
 
     val isFinishSent = Ref(false)
 
+    val isShutedDown = Ref(false)
+
     /**
      * 收到了多少个[[Data]]
      */
@@ -285,7 +287,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             BcpIo.enqueue(stream, newPack)
             stream.flush()
           }
-          resetHeartBeatTimer(stream)
+          resetHeartBeatTimer(connection)
           val currentTimeMillis = System.currentTimeMillis
           val currentConnections = sendingConnectionQueue.getOrElse(currentTimeMillis, Set[Connection]())
           if (restOpenConections.isEmpty) {
@@ -320,7 +322,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             stream.flush()
           }
           connection.unconfirmedPackets.transform(_.enqueue(newPack))
-          resetHeartBeatTimer(stream)
+          resetHeartBeatTimer(connection)
           val currentTimeMillis = System.currentTimeMillis
           val currentConnections = sendingConnectionQueue.getOrElse(currentTimeMillis, Set[Connection]())
           if (restOpenConnections.isEmpty) {
@@ -394,6 +396,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) => {
         for (openConnections <- sendingConnectionQueue.values; connection <- openConnections) {
+          connection.isShutedDown() = true
           close(connection)
           val stream = connection.stream()
           val heartBeatTimer = stream.heartBeatTimer()
@@ -478,7 +481,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           logger.fine("received data, connectionId： " + connectionId + ", connections: " + connections)
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
-            resetHeartBeatTimer(stream)
+            resetHeartBeatTimer(connection)
             val packId = connection.numDataReceived()
             connection.numDataReceived() = packId + 1
             dataReceived(connectionId, connection, packId, buffer)
@@ -489,7 +492,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         case RetransmissionData(dataConnectionId, packId, data) => {
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
-            resetHeartBeatTimer(stream)
+            resetHeartBeatTimer(connection)
             connections.get(dataConnectionId) match {
               case Some(dataConnection) => {
                 logger.fine(
@@ -565,7 +568,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         case RetransmissionFinish(finishConnectionId, packId) => {
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
-            resetHeartBeatTimer(stream)
+            resetHeartBeatTimer(connection)
             connections.get(finishConnectionId) match {
               case Some(finishConnection) => {
                 retransmissionFinishReceived(finishConnectionId, finishConnection, packId)
@@ -638,17 +641,20 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
-  private def resetHeartBeatTimer(stream: Stream)(implicit txn: InTxn) {
-    val oldTimer = stream.heartBeatTimer()
-    Txn.afterCommit(_ => oldTimer.cancel(false))
-    val newTimer =
-      internalExecutor.scheduleWithFixedDelay(
-        stream,
-        HeartBeatDelay.length,
-        HeartBeatDelay.length,
-        HeartBeatDelay.unit)
-    Txn.afterRollback(_ => newTimer.cancel(false))
-    stream.heartBeatTimer() = newTimer
+  private def resetHeartBeatTimer(connection: Connection)(implicit txn: InTxn) {
+    if (!connection.isShutedDown()) {
+      val stream = connection.stream()
+      val oldTimer = stream.heartBeatTimer()
+      Txn.afterCommit(_ => oldTimer.cancel(false))
+      val newTimer =
+        internalExecutor.scheduleWithFixedDelay(
+          stream,
+          HeartBeatDelay.length,
+          HeartBeatDelay.length,
+          HeartBeatDelay.unit)
+      Txn.afterRollback(_ => newTimer.cancel(false))
+      stream.heartBeatTimer() = newTimer
+    }
   }
 
   private[bcp] final def interrupt() {
@@ -700,6 +706,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       interrupt()
     }
     if (connectionId > oldLastConnectionId + 1) {
+      // 有连接卡在握手阶段 
       for (id <- oldLastConnectionId + 1 until connectionId) {
         val c = newConnection
         connections(id) = c

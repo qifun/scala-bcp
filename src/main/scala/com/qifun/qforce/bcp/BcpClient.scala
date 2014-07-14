@@ -177,8 +177,8 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       connections.forall(connection =>
         connection._2.stream() == null || connection._2.stream().connectionState() == ConnectionSlow)) {
       isConnecting() = true
-      val connectionId = nextConnectionId()
-      nextConnectionId() = connectionId + 1
+      val connectionId = nextConnectionId() + 1
+      nextConnectionId() = nextConnectionId() + 1
       Txn.afterCommit { _ =>
         val connectFuture = Future {
           val socket = connect().await

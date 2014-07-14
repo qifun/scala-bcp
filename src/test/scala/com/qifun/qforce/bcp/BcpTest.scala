@@ -446,4 +446,149 @@ class BcpTest {
     server.clear()
   }
 
+  @Test
+  def seqSendTest {
+    val lock = new AnyRef
+    @volatile var serverReceivedResults: Option[Try[Seq[String]]] = None
+    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+    var clientSocket: Option[AsynchronousSocketChannel] = None
+
+    abstract class ServerSession { _: BcpServer#Session =>
+
+      override final def available(): Unit = {}
+
+      override final def accepted(): Unit = {
+        atomic { implicit txn =>
+          serverSession() match {
+            case None =>
+              serverSession() = Some(this)
+            case _ =>
+              Txn.afterCommit { _ =>
+                lock.synchronized {
+                  serverReceivedResults = Some(Failure(new Exception("Server session already exist")))
+                  lock.notify()
+                }
+              }
+          }
+        }
+      }
+
+      override final def received(pack: ByteBuffer*): Unit = {
+        lock.synchronized {
+          val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
+          pack.head.get(bytes)
+          serverReceivedResults match {
+            case None =>
+              serverReceivedResults = Some(Success(Seq(new String(bytes, "UTF-8"))))
+            case Some(Success(receivedResults)) =>
+              serverReceivedResults = Some(Success(receivedResults ++ Seq((new String(bytes, "UTF-8")))))
+            case Some(Failure(_)) =>
+          }
+          lock.notify()
+        }
+      }
+
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {}
+
+      final def shutDownSession() = {
+        shutDown()
+      }
+
+    }
+
+    val server = new TestServer {
+      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
+        override protected final val sessionId = id
+      }
+
+      override protected final def acceptFailed(throwable: Throwable): Unit = {
+        lock.synchronized {
+          serverReceivedResults = Some(Failure(throwable))
+          lock.notify()
+        }
+      }
+    }
+
+    val client = new BcpClient {
+
+      override final def available(): Unit = {
+        lock.synchronized {
+          lock.notify()
+        }
+      }
+
+      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
+        Nio2Future.connect(
+          socket,
+          new InetSocketAddress(
+            "localhost",
+            server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
+        clientSocket = Some(socket)
+        socket
+      }
+
+      override final def executor = new ScheduledThreadPoolExecutor(2)
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {
+      }
+
+    }
+
+    // 等待连接成功
+    lock.synchronized {
+      while (clientSocket == None) {
+        lock.wait()
+      }
+    }
+
+    clientSocket match {
+      case Some(socket1) =>
+        client.send(ByteBuffer.wrap("a".getBytes("UTF-8")))
+        client.send(ByteBuffer.wrap("b".getBytes("UTF-8")))
+        lock.synchronized {
+          while (serverReceivedResults == None ||
+            (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 2)) {
+            lock.wait()
+          }
+        }
+        socket1.close()
+        if (serverReceivedResults.get.isSuccess) {
+          client.send(ByteBuffer.wrap("c".getBytes("UTF-8")))
+          client.send(ByteBuffer.wrap("d".getBytes("UTF-8")))
+        }
+        lock.synchronized {
+          while (serverReceivedResults.get.isSuccess && serverReceivedResults.get.get.count(_ => true) < 4) {
+            lock.wait()
+          }
+        }
+        val Some(serverReceivedSome) = serverReceivedResults
+        serverReceivedSome match {
+          case Success(u) => assertEquals(u, Seq("a", "b", "c", "d"))
+          case Failure(e) => throw e
+        }
+      case _ =>
+    }
+
+    atomic { implicit txn =>
+      serverSession() match {
+        case Some(session) =>
+          Txn.afterCommit(_ => session.shutDownSession())
+        case _ =>
+      }
+    }
+    client.shutDown()
+    server.clear()
+  }
+
 }
