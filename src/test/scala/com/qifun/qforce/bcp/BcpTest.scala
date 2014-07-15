@@ -570,5 +570,111 @@ class BcpTest {
     client.shutDown()
     server.clear()
   }
-  
+
+  @Test
+  def clientInterrupteTest {
+    val lock = new AnyRef
+    @volatile var clientInterrupteResult: Option[Try[Boolean]] = None
+    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
+    var clientSocket: Option[AsynchronousSocketChannel] = None
+
+    abstract class ServerSession { _: BcpServer#Session =>
+
+      override final def available(): Unit = {}
+
+      override final def accepted(): Unit = {
+        atomic { implicit txn =>
+          serverSession() match {
+            case None =>
+              serverSession() = Some(this)
+            case _ =>
+              Txn.afterCommit { _ =>
+                lock.synchronized {
+                  clientInterrupteResult = Some(Failure(new Exception("Server session already exist")))
+                  lock.notify()
+                }
+              }
+          }
+        }
+      }
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {}
+
+    }
+
+    val server = new TestServer {
+      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
+        override protected final val sessionId = id
+      }
+
+      override protected final def acceptFailed(throwable: Throwable): Unit = {
+        lock.synchronized {
+          clientInterrupteResult = Some(Failure(throwable))
+          lock.notify()
+        }
+      }
+    }
+
+    val client = new BcpClient {
+
+      override final def available(): Unit = {}
+
+      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
+        Nio2Future.connect(
+          socket,
+          new InetSocketAddress(
+            "localhost",
+            server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
+        clientSocket = Some(socket)
+        socket.close()
+        socket
+      }
+
+      override final def executor = new ScheduledThreadPoolExecutor(2)
+
+      override final def received(pack: ByteBuffer*): Unit = {}
+
+      override final def interrupted(): Unit = {
+        lock.synchronized {
+          clientInterrupteResult = Some(Success(true))
+          lock.notify()
+        }
+      }
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {
+      }
+
+    }
+
+    lock.synchronized {
+      while (clientSocket == None || clientInterrupteResult == None) {
+        lock.wait()
+      }
+    }
+
+    val Some(clientInterruptedSome) = clientInterrupteResult
+    clientInterruptedSome match {
+      case Success(u) => assertEquals(u, true)
+      case Failure(e) => throw e
+    }
+    atomic { implicit txn =>
+      serverSession() match {
+        case Some(session) =>
+          Txn.afterCommit(_ => session.shutDown())
+        case _ =>
+      }
+    }
+    client.shutDown()
+    server.clear()
+  }
+
 }

@@ -665,18 +665,17 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private[bcp] final def interrupt() {
     atomic { implicit txn: InTxn =>
-      sendingQueue() = Left(PacketQueue())
       for ((_, connection) <- connections) {
         connection.isShutedDown() = true
         if (connection.stream() != null) {
           val oldHeartBeatTimer = connection.stream().heartBeatTimer()
           Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
+          connection.stream().interrupt
+          connection.stream() = null
         }
         connection.unconfirmedPackets() = Queue.empty
-        close(connection)
-        connection.stream().interrupt
-        connection.stream() = null
       }
+      sendingQueue() = Left(PacketQueue())
       connections.clear()
       Txn.afterCommit(_ => interrupted())
     }
@@ -709,33 +708,34 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       stream.interrupt()
     }
     if (connectionId < oldLastConnectionId ||
-      connectionId - oldLastConnectionId + connections.size > MaxConnectionsPerSession) {
+      connectionId - oldLastConnectionId + connections.size >= MaxConnectionsPerSession) {
       interrupt()
-    }
-    if (connectionId > oldLastConnectionId + 1) {
-      // 有连接卡在握手阶段 
-      for (id <- oldLastConnectionId + 1 until connectionId) {
-        val c = newConnection
-        connections(id) = c
-      }
-    }
-    val connection = connections.getOrElseUpdate(connectionId, newConnection)
-    lastConnectionId() = connectionId
-    if (connection.stream() == null) {
-      connection.stream() = stream
-      addOpenConnection(connection)
-      Txn.afterCommit(_ => startReceive(connectionId, connection, stream))
-      val timer =
-        internalExecutor.scheduleWithFixedDelay(
-          stream,
-          HeartBeatDelay.length,
-          HeartBeatDelay.length,
-          HeartBeatDelay.unit)
-      Txn.afterRollback(_ => timer.cancel(false))
-      stream.heartBeatTimer() = timer
     } else {
-      logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
-      stream.interrupt()
+      if (connectionId > oldLastConnectionId + 1) {
+        // 有连接卡在握手阶段 
+        for (id <- oldLastConnectionId + 1 until connectionId) {
+          val c = newConnection
+          connections(id) = c
+        }
+      }
+      val connection = connections.getOrElseUpdate(connectionId, newConnection)
+      lastConnectionId() = connectionId
+      if (connection.stream() == null) {
+        connection.stream() = stream
+        addOpenConnection(connection)
+        Txn.afterCommit(_ => startReceive(connectionId, connection, stream))
+        val timer =
+          internalExecutor.scheduleWithFixedDelay(
+            stream,
+            HeartBeatDelay.length,
+            HeartBeatDelay.length,
+            HeartBeatDelay.unit)
+        Txn.afterRollback(_ => timer.cancel(false))
+        stream.heartBeatTimer() = timer
+      } else {
+        logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
+        stream.interrupt()
+      }
     }
   }
 

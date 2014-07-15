@@ -130,6 +130,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   }
 
   override private[bcp] final def close(closeConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
+    val connectionSize = connections.size
     if (closeConnection.stream() != null) {
       val busyTimer = closeConnection.stream().busyTimer()
       if (busyTimer != null) {
@@ -138,10 +139,11 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
       }
     }
     if (connections.forall(connection =>
-      connection._2 == closeConnection || connection._2.stream() == null)) {
+      connection._2 == closeConnection || connection._2.stream() == null) &&
+      connectionSize < MaxConnectionsPerSession) {
       startReconnectTimer()
     }
-    if (connections.size >= MaxConnectionsPerSession &&
+    if (connectionSize >= MaxConnectionsPerSession &&
       connections.forall(connection =>
         connection._2 == closeConnection || connection._2.stream() == null)) {
       interrupt()
