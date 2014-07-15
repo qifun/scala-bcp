@@ -506,7 +506,18 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                     ", connections: " + connections)
                 dataReceived(dataConnectionId, dataConnection, packId, data)
               }
-              case None => // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
+              case None => {
+                val lastConnectionId = this.lastConnectionId()
+                if (lastConnectionId < dataConnectionId) {
+                  // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
+                  val c = newConnection
+                  connections(dataConnectionId) = c
+                  dataReceived(dataConnectionId, c, packId, data)
+                } else {
+                  logger.fine("received data ignore, connectionId: " + connectionId + ", connections: " + connections)
+                  // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
+                }
+              }
             }
           }
           startReceive(connectionId, connection, stream)
@@ -569,7 +580,18 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                 retransmissionFinishReceived(finishConnectionId, finishConnection, packId)
                 cleanUp(finishConnectionId, finishConnection)
               }
-              case None => // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
+              case None => {
+                val lastConnectionId = this.lastConnectionId()
+                if (lastConnectionId < finishConnectionId) {
+                  // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
+                  val c = newConnection
+                  connections(finishConnectionId) = c
+                  retransmissionFinishReceived(finishConnectionId, c, packId)
+                  cleanUp(finishConnectionId, c)
+                } else {
+                  // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
+                }
+              }
             }
           }
           startReceive(connectionId, connection, stream)
@@ -694,8 +716,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       if (connectionId > oldLastConnectionId + 1) {
         // 有连接卡在握手阶段 
         for (id <- oldLastConnectionId + 1 until connectionId) {
-          val c = newConnection
-          connections(id) = c
+          connections.get(id) match {
+            case None =>
+              val c = newConnection
+              connections(id) = c
+            case _ =>
+          }
         }
       }
       val connection = connections.getOrElseUpdate(connectionId, newConnection)
