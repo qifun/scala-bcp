@@ -85,7 +85,7 @@ class BcpTest {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
-    var serverSession: Ref[Option[ServerSession]] = Ref(None)
+    var serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
     abstract class ServerSession { _: BcpServer#Session =>
 
@@ -122,10 +122,6 @@ class BcpTest {
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
-
-      final def shutDownSession() = {
-        shutDown()
-      }
 
     }
 
@@ -199,7 +195,7 @@ class BcpTest {
     atomic { implicit txn =>
       serverSession() match {
         case Some(session) =>
-          Txn.afterCommit(_ => session.shutDownSession())
+          Txn.afterCommit(_ => session.shutDown)
         case _ =>
       }
     }
@@ -211,7 +207,7 @@ class BcpTest {
   def shutDownTest {
     val lock = new AnyRef
     @volatile var shutedDownResult: Option[Try[Boolean]] = None
-    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
     abstract class ServerSession { _: BcpServer#Session =>
 
@@ -240,10 +236,6 @@ class BcpTest {
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
-
-      final def shutDownSession() = {
-        shutDown()
-      }
 
     }
 
@@ -310,7 +302,7 @@ class BcpTest {
     atomic { implicit txn =>
       serverSession() match {
         case Some(session) =>
-          Txn.afterCommit(_ => session.shutDownSession())
+          Txn.afterCommit(_ => session.shutDown())
         case _ =>
       }
     }
@@ -321,7 +313,7 @@ class BcpTest {
   def closeConnectionTest {
     val lock = new AnyRef
     @volatile var serverReceivedResult: Option[Try[String]] = None
-    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
     abstract class ServerSession { _: BcpServer#Session =>
@@ -359,10 +351,6 @@ class BcpTest {
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
-
-      final def shutDownSession() = {
-        shutDown()
-      }
 
     }
 
@@ -436,7 +424,7 @@ class BcpTest {
     atomic { implicit txn =>
       serverSession() match {
         case Some(session) =>
-          Txn.afterCommit(_ => session.shutDownSession())
+          Txn.afterCommit(_ => session.shutDown())
         case _ =>
       }
     }
@@ -448,7 +436,7 @@ class BcpTest {
   def seqSendTest {
     val lock = new AnyRef
     @volatile var serverReceivedResults: Option[Try[Seq[String]]] = None
-    val serverSession: Ref[Option[ServerSession]] = Ref(None)
+    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
     abstract class ServerSession { _: BcpServer#Session =>
@@ -491,10 +479,6 @@ class BcpTest {
       override final def shutedDown(): Unit = {}
 
       override final def unavailable(): Unit = {}
-
-      final def shutDownSession() = {
-        shutDown()
-      }
 
     }
 
@@ -579,12 +563,12 @@ class BcpTest {
     atomic { implicit txn =>
       serverSession() match {
         case Some(session) =>
-          Txn.afterCommit(_ => session.shutDownSession())
+          Txn.afterCommit(_ => session.shutDown())
         case _ =>
       }
     }
     client.shutDown()
     server.clear()
   }
-
+  
 }
