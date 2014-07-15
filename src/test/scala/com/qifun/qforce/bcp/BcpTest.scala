@@ -576,7 +576,6 @@ class BcpTest {
     val lock = new AnyRef
     @volatile var clientInterrupteResult: Option[Try[Boolean]] = None
     val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
-    var clientSocket: Option[AsynchronousSocketChannel] = None
 
     abstract class ServerSession { _: BcpServer#Session =>
 
@@ -632,7 +631,6 @@ class BcpTest {
           new InetSocketAddress(
             "localhost",
             server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
-        clientSocket = Some(socket)
         socket.close()
         socket
       }
@@ -656,7 +654,7 @@ class BcpTest {
     }
 
     lock.synchronized {
-      while (clientSocket == None || clientInterrupteResult == None) {
+      while (clientInterrupteResult == None) {
         lock.wait()
       }
     }
