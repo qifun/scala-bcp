@@ -631,7 +631,7 @@ class BcpTest {
           new InetSocketAddress(
             "localhost",
             server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
-        socket.close()
+        socket.shutdownInput()
         socket
       }
 

@@ -350,13 +350,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   }
 
   private def enqueueFinish(connection: Connection)(implicit txn: InTxn) {
-    connection.unconfirmedPackets.transform(_.enqueue(Finish))
-    val stream = connection.stream()
-    Txn.afterCommit { _ =>
-      BcpIo.enqueue(stream, Finish)
-      stream.flush()
+    if (!connection.isFinishSent()) {
+      connection.unconfirmedPackets.transform(_.enqueue(Finish))
+      val stream = connection.stream()
+      Txn.afterCommit { _ =>
+        BcpIo.enqueue(stream, Finish)
+        stream.flush()
+      }
+      connection.isFinishSent() = true
     }
-    connection.isFinishSent() = true
   }
 
   private[bcp] final def finishConnection(connectionId: Int, connection: Connection)(implicit txn: InTxn) {
@@ -504,18 +506,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                     ", connections: " + connections)
                 dataReceived(dataConnectionId, dataConnection, packId, data)
               }
-              case None => {
-                val lastConnectionId = this.lastConnectionId()
-                if (between(lastConnectionId, lastConnectionId + MaxActiveConnectionsPerSession, dataConnectionId)) {
-                  // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
-                  val c = newConnection
-                  connections(dataConnectionId) = c
-                  dataReceived(dataConnectionId, c, packId, data)
-                } else {
-                  logger.fine("received data ignore, connectionId: " + connectionId + ", connections: " + connections)
-                  // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
-                }
-              }
+              case None => // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
             }
           }
           startReceive(connectionId, connection, stream)
@@ -578,18 +569,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                 retransmissionFinishReceived(finishConnectionId, finishConnection, packId)
                 cleanUp(finishConnectionId, finishConnection)
               }
-              case None => {
-                val lastConnectionId = this.lastConnectionId()
-                if (between(lastConnectionId, lastConnectionId + MaxActiveConnectionsPerSession, connectionId)) {
-                  // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
-                  val c = newConnection
-                  connections(finishConnectionId) = c
-                  retransmissionFinishReceived(finishConnectionId, c, packId)
-                  cleanUp(finishConnectionId, c)
-                } else {
-                  // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
-                }
-              }
+              case None => // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
             }
           }
           startReceive(connectionId, connection, stream)
