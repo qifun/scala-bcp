@@ -87,7 +87,7 @@ class BcpTest {
     @volatile var clientResult: Option[Try[String]] = None
     var serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
-    abstract class ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -126,9 +126,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
-        override protected final val sessionId = id
-      }
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
         lock.synchronized {
@@ -209,7 +207,7 @@ class BcpTest {
     @volatile var shutedDownResult: Option[Try[Boolean]] = None
     val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
-    abstract class ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -240,9 +238,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
-        override protected final val sessionId = id
-      }
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
         lock.synchronized {
@@ -316,7 +312,7 @@ class BcpTest {
     val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
-    abstract class ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -355,9 +351,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
-        override protected final val sessionId = id
-      }
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
         lock.synchronized {
@@ -439,7 +433,7 @@ class BcpTest {
     val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
-    abstract class ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -483,9 +477,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
-        override protected final val sessionId = id
-      }
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
         lock.synchronized {
@@ -577,7 +569,7 @@ class BcpTest {
     @volatile var clientInterrupteResult: Option[Try[Boolean]] = None
     val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
-    abstract class ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -608,9 +600,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new ServerSession with Session {
-        override protected final val sessionId = id
-      }
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
         lock.synchronized {
