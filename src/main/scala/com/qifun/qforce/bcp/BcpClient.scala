@@ -146,7 +146,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     if (connectionSize >= MaxConnectionsPerSession &&
       connections.forall(connection =>
         connection._2 == closeConnection || connection._2.stream() == null)) {
-      interrupt()
+      internalInterrupt()
     }
   }
 
@@ -243,7 +243,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
               logger.severe(e)
           }
         }
-      }, BusyTimeout.length, BusyTimeout.unit)
+      }, ReconnectTimeout.length, ReconnectTimeout.unit)
       Txn.afterRollback(_ => newBusyTimer.cancel(false))
       reconnectTimer() = newBusyTimer
     }

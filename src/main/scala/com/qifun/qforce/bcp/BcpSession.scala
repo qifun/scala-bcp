@@ -679,10 +679,9 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       stream.heartBeatTimer() = newTimer
     }
   }
-
-  private[bcp] final def interrupt() {
-    atomic { implicit txn: InTxn =>
-      for ((_, connection) <- connections) {
+  
+  private[bcp] final def internalInterrupt()(implicit txn: InTxn): Unit = {
+          for ((_, connection) <- connections) {
         connection.isShutedDown() = true
         if (connection.stream() != null) {
           val oldHeartBeatTimer = connection.stream().heartBeatTimer()
@@ -695,6 +694,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       sendingQueue() = Left(PacketQueue())
       connections.clear()
       Txn.afterCommit(_ => interrupted())
+
+  }
+
+  final def interrupt() {
+    atomic { implicit txn: InTxn =>
+      internalInterrupt()
     }
   }
 
@@ -718,7 +723,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private[bcp] def close(connection: Connection)(implicit txn: InTxn): Unit
 
-  private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn) {
+  private[bcp] final def addStream(connectionId: Int, stream: Stream)(implicit txn: InTxn): Unit = {
     val oldLastConnectionId = lastConnectionId()
     if (connections.size >= MaxConnectionsPerSession ||
       connections.count(_._2.stream() != null) >= MaxActiveConnectionsPerSession) {
@@ -726,7 +731,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
     if (connectionId < oldLastConnectionId ||
       connectionId - oldLastConnectionId + connections.size >= MaxConnectionsPerSession) {
-      interrupt()
+      internalInterrupt()
     } else {
       if (connectionId > oldLastConnectionId + 1) {
         // 有连接卡在握手阶段 
