@@ -53,11 +53,9 @@ abstract class BcpServer {
   import BcpServer.appender
   import BcpServer.formatter
 
-  trait Session extends BcpSession[BcpServer.Stream, BcpServer.Connection] {
+  abstract class Session protected (sessionId: Array[Byte]) extends BcpSession[BcpServer.Stream, BcpServer.Connection] {
 
     override private[bcp] final def newConnection = new BcpServer.Connection
-
-    protected val sessionId: Array[Byte]
 
     override private[bcp] final def internalExecutor = executor
 
@@ -88,7 +86,10 @@ abstract class BcpServer {
 
   protected def executor: ScheduledExecutorService
 
-  private val sessions = TMap.empty[BoxedSessionId, Session]
+  /**
+   * @note [[Array.equals]]不支持比较内容，所以[[TMap]]的键必须使用[[BoxedSessionId]]。
+   */ 
+   val sessions = TMap.empty[BoxedSessionId, Session]
 
   protected def newSession(sessionId: Array[Byte]): Session
 
