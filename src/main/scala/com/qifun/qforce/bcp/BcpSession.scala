@@ -509,7 +509,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               case None => {
                 val oldLastConnectionId = this.lastConnectionId()
                 if (dataConnectionId - oldLastConnectionId + connections.size >= MaxConnectionsPerSession) {
-                  interrupt()
+                  internalInterrupt()
                 } else {
                   if (oldLastConnectionId < dataConnectionId) {
                     // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
@@ -590,7 +590,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               case None => {
                 val oldLastConnectionId = this.lastConnectionId()
                 if (finishConnectionId - oldLastConnectionId + connections.size >= MaxConnectionsPerSession) {
-                  interrupt()
+                  internalInterrupt()
                 } else {
                   if (oldLastConnectionId < finishConnectionId) {
                     // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了

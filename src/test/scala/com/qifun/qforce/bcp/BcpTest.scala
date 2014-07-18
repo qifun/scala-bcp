@@ -85,27 +85,12 @@ class BcpTest {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
-    var serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
     trait ServerSession { _: BcpServer#Session =>
-
+      
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {
-        atomic { implicit txn =>
-          serverSession() match {
-            case None =>
-              serverSession() = Some(this)
-            case _ =>
-              Txn.afterCommit { _ =>
-                lock.synchronized {
-                  serverResult = Some(Failure(new Exception("Server session already exist")))
-                  lock.notify()
-                }
-              }
-          }
-        }
-      }
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
@@ -190,13 +175,6 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
-    atomic { implicit txn =>
-      serverSession() match {
-        case Some(session) =>
-          Txn.afterCommit(_ => session.shutDown)
-        case _ =>
-      }
-    }
     client.shutDown()
     server.clear()
   }
@@ -205,27 +183,12 @@ class BcpTest {
   def shutDownTest {
     val lock = new AnyRef
     @volatile var shutedDownResult: Option[Try[Boolean]] = None
-    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
     trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {
-        atomic { implicit txn =>
-          serverSession() match {
-            case None =>
-              serverSession() = Some(this)
-            case _ =>
-              Txn.afterCommit { _ =>
-                lock.synchronized {
-                  shutedDownResult = Some(Failure(new Exception("Server session already exist")))
-                  lock.notify()
-                }
-              }
-          }
-        }
-      }
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {}
 
@@ -295,13 +258,6 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
-    atomic { implicit txn =>
-      serverSession() match {
-        case Some(session) =>
-          Txn.afterCommit(_ => session.shutDown())
-        case _ =>
-      }
-    }
     server.clear()
   }
 
@@ -309,28 +265,13 @@ class BcpTest {
   def closeConnectionTest {
     val lock = new AnyRef
     @volatile var serverReceivedResult: Option[Try[String]] = None
-    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
     trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {
-        atomic { implicit txn =>
-          serverSession() match {
-            case None =>
-              serverSession() = Some(this)
-            case _ =>
-              Txn.afterCommit { _ =>
-                lock.synchronized {
-                  serverReceivedResult = Some(Failure(new Exception("Server session already exist")))
-                  lock.notify()
-                }
-              }
-          }
-        }
-      }
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
@@ -415,13 +356,6 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
-    atomic { implicit txn =>
-      serverSession() match {
-        case Some(session) =>
-          Txn.afterCommit(_ => session.shutDown())
-        case _ =>
-      }
-    }
     client.shutDown()
     server.clear()
   }
@@ -430,28 +364,13 @@ class BcpTest {
   def seqSendTest {
     val lock = new AnyRef
     @volatile var serverReceivedResults: Option[Try[Seq[String]]] = None
-    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
     var clientSocket: Option[AsynchronousSocketChannel] = None
 
     trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {
-        atomic { implicit txn =>
-          serverSession() match {
-            case None =>
-              serverSession() = Some(this)
-            case _ =>
-              Txn.afterCommit { _ =>
-                lock.synchronized {
-                  serverReceivedResults = Some(Failure(new Exception("Server session already exist")))
-                  lock.notify()
-                }
-              }
-          }
-        }
-      }
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
@@ -552,13 +471,6 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
-    atomic { implicit txn =>
-      serverSession() match {
-        case Some(session) =>
-          Txn.afterCommit(_ => session.shutDown())
-        case _ =>
-      }
-    }
     client.shutDown()
     server.clear()
   }
@@ -567,27 +479,12 @@ class BcpTest {
   def clientInterrupteTest {
     val lock = new AnyRef
     @volatile var clientInterrupteResult: Option[Try[Boolean]] = None
-    val serverSession: Ref[Option[ServerSession with BcpServer#Session]] = Ref(None)
 
     trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
-      override final def accepted(): Unit = {
-        atomic { implicit txn =>
-          serverSession() match {
-            case None =>
-              serverSession() = Some(this)
-            case _ =>
-              Txn.afterCommit { _ =>
-                lock.synchronized {
-                  clientInterrupteResult = Some(Failure(new Exception("Server session already exist")))
-                  lock.notify()
-                }
-              }
-          }
-        }
-      }
+      override final def accepted(): Unit = {}
 
       override final def received(pack: ByteBuffer*): Unit = {}
 
@@ -654,13 +551,7 @@ class BcpTest {
       case Success(u) => assertEquals(u, true)
       case Failure(e) => throw e
     }
-    atomic { implicit txn =>
-      serverSession() match {
-        case Some(session) =>
-          Txn.afterCommit(_ => session.shutDown())
-        case _ =>
-      }
-    }
+    
     client.shutDown()
     server.clear()
   }
