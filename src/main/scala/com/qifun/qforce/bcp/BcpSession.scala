@@ -679,21 +679,21 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       stream.heartBeatTimer() = newTimer
     }
   }
-  
+
   private[bcp] final def internalInterrupt()(implicit txn: InTxn): Unit = {
-          for ((_, connection) <- connections) {
-        connection.isShutedDown() = true
-        if (connection.stream() != null) {
-          val oldHeartBeatTimer = connection.stream().heartBeatTimer()
-          Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
-          connection.stream().interrupt
-          connection.stream() = null
-        }
-        connection.unconfirmedPackets() = Queue.empty
+    for ((_, connection) <- connections) {
+      connection.isShutedDown() = true
+      if (connection.stream() != null) {
+        val oldHeartBeatTimer = connection.stream().heartBeatTimer()
+        Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
+        connection.stream().interrupt
+        connection.stream() = null
       }
-      sendingQueue() = Left(PacketQueue())
-      connections.clear()
-      Txn.afterCommit(_ => interrupted())
+      connection.unconfirmedPackets() = Queue.empty
+    }
+    sendingQueue() = Left(PacketQueue())
+    connections.clear()
+    Txn.afterCommit(_ => interrupted())
 
   }
 
