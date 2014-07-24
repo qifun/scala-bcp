@@ -14,7 +14,6 @@ import java.nio.channels.AsynchronousServerSocketChannel
 import com.qifun.statelessFuture.util.Blocking
 import java.util.concurrent.Executors
 import scala.reflect.classTag
-import com.qifun.statelessFuture.util.Zip
 import com.qifun.statelessFuture.util.Promise
 import java.nio.channels.CompletionHandler
 import scala.util.Try
