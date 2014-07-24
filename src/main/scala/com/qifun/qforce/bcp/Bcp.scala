@@ -119,6 +119,13 @@ object Bcp {
    * @group Constants
    */
   final val BusyTimeout = 500.milliseconds
+  
+  /**
+   * 重新建立链接时间
+   * 
+   * @group Constants
+   */
+  final val ReconnectTimeout = 500.milliseconds
 
   /**
    * 连接在idle状态多长时间就关闭链接

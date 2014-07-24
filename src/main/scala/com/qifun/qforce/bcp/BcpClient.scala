@@ -62,6 +62,10 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   private val reconnectTimer = Ref.make[ScheduledFuture[_]]
   private val idleTimer = Ref.make[ScheduledFuture[_]]
+  private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
+  private val nextConnectionId = Ref(0)
+  private val isConnecting = Ref(false)
+  private val isShutedDown = Ref(false)
 
   override private[bcp] final def newConnection = new BcpClient.Connection
 
@@ -74,10 +78,12 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
   override private[bcp] final def release()(implicit txn: InTxn) {
     isShutedDown() = true
     val oldReconnectTimer = reconnectTimer()
+    reconnectTimer() = null;
     if (oldReconnectTimer != null) {
       Txn.afterCommit(_ => oldReconnectTimer.cancel(false))
     }
     val oldIdleTimer = idleTimer()
+    idleTimer() = null;
     if (oldIdleTimer != null) {
       Txn.afterCommit(_ => oldIdleTimer.cancel(false))
     }
@@ -146,14 +152,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     if (connectionSize >= MaxConnectionsPerSession &&
       connections.forall(connection =>
         connection._2 == closeConnection || connection._2.stream() == null)) {
-      interrupt()
+      internalInterrupt()
     }
   }
-
-  private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
-  private val nextConnectionId = Ref(0)
-  private val isConnecting = Ref(false)
-  private val isShutedDown = Ref(false)
 
   private def afterConnect(socket: AsynchronousSocketChannel, connectionId: Int): Future[Unit] = Future {
     logger.fine(fast"bcp client connect server success, socket: ${socket}")
@@ -192,7 +193,9 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
           case e: Exception => {
             logger.severe(e)
             atomic { implicit txn =>
-              startReconnectTimer()
+              if (!isShutedDown()) {
+                startReconnectTimer()
+              }
             }
           }
         }
@@ -243,7 +246,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
               logger.severe(e)
           }
         }
-      }, BusyTimeout.length, BusyTimeout.unit)
+      }, ReconnectTimeout.length, ReconnectTimeout.unit)
       Txn.afterRollback(_ => newBusyTimer.cancel(false))
       reconnectTimer() = newBusyTimer
     }
