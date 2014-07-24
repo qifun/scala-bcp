@@ -686,15 +686,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       if (connection.stream() != null) {
         val oldHeartBeatTimer = connection.stream().heartBeatTimer()
         Txn.afterCommit(_ => oldHeartBeatTimer.cancel(false))
-        connection.stream().interrupt
+        connection.stream().interrupt()
         connection.stream() = null
       }
       connection.unconfirmedPackets() = Queue.empty
     }
     sendingQueue() = Left(PacketQueue())
     connections.clear()
+    release()
     Txn.afterCommit(_ => interrupted())
-
   }
 
   final def interrupt() {
