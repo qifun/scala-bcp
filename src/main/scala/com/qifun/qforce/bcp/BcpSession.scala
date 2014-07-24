@@ -617,28 +617,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             checkShutDown()
           }
         }
-        case Renew => {
-          atomic { implicit txn =>
-            sendingQueue() match {
-              case Right(sendingConnectionQueue) => {
-                for (openConnections <- sendingConnectionQueue.values; originalConnection <- openConnections) {
-                  if (originalConnection != connection) {
-                    val stream = originalConnection.stream()
-                    stream.interrupt()
-                    val heartBeatTimer = stream.heartBeatTimer()
-                    Txn.afterCommit(_ => heartBeatTimer.cancel(false))
-                    stream.heartBeatTimer() = null
-                    originalConnection.stream() = null
-                  }
-                }
-              }
-              case _: Left[_, _] =>
-            }
-            sendingQueue() = Right(newSendingConnectionQueue)
-            connections.clear()
-            connections(connectionId) = connection
-          }
-        }
       }
     }
 
@@ -662,6 +640,24 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     for (_ <- receiveFuture) {
       logger.fine("The packet is processed successfully.")
     }
+  }
+
+  private[bcp] def renewSession()(implicit txn: InTxn) {
+    sendingQueue() match {
+      case Right(sendingConnectionQueue) => {
+        for (openConnections <- sendingConnectionQueue.values; originalConnection <- openConnections) {
+          val stream = originalConnection.stream()
+          stream.interrupt()
+          val heartBeatTimer = stream.heartBeatTimer()
+          Txn.afterCommit(_ => heartBeatTimer.cancel(false))
+          stream.heartBeatTimer() = null
+          originalConnection.stream() = null
+        }
+      }
+      case _: Left[_, _] =>
+    }
+    sendingQueue() = Right(newSendingConnectionQueue)
+    connections.clear()
   }
 
   private def resetHeartBeatTimer(connection: Connection)(implicit txn: InTxn) {

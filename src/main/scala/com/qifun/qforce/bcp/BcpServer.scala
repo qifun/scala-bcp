@@ -98,7 +98,7 @@ abstract class BcpServer {
     val stream = new BcpServer.Stream(socket)
     val acceptFuture = Future {
       val head = BcpIo.receiveHead(stream).await
-      val ConnectionHead(sessionId, connectionId) = head
+      val ConnectionHead(sessionId, isRenew, connectionId) = head
       logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
@@ -111,6 +111,9 @@ abstract class BcpServer {
           case Some(session) => {
             session
           }
+        }
+        if(isRenew) {
+          session.renewSession()
         }
         session.addStream(connectionId, stream)
       }

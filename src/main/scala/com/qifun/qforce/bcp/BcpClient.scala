@@ -162,7 +162,7 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     atomic { implicit txn =>
       if (!isShutedDown()) {
         Txn.afterCommit { _ =>
-          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, connectionId))
+          BcpIo.enqueueHead(stream, ConnectionHead(sessionId, false, connectionId))
           logger.fine(
             fast"bcp client send head to server success, sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
         }

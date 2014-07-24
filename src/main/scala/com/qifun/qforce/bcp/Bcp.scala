@@ -151,7 +151,7 @@ object Bcp {
   /**
    * @group Protocols
    */
-  final case class ConnectionHead(sessionId: Array[Byte], connectionId: Int)
+  final case class ConnectionHead(sessionId: Array[Byte], isRenew: Boolean, connectionId: Int)
 
   /**
    * @group Protocols
@@ -216,13 +216,6 @@ object Bcp {
    */
   object RetransmissionData {
     final val HeadByte: Byte = 2
-  }
-
-  /**
-   * @group Protocols
-   */
-  case object Renew extends ClientToServer {
-    final val HeadByte: Byte = 3
   }
 
   /**
