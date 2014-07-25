@@ -11,6 +11,7 @@ import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import java.io.EOFException
 import java.io.IOException
 import scala.collection.mutable.ArrayBuffer
+import scala.language.implicitConversions
 
 private[bcp] object BcpIo {
 
@@ -51,10 +52,6 @@ private[bcp] object BcpIo {
 
   final def enqueue(queue: SocketWritingQueue, pack: Acknowledge.type) {
     queue.enqueue(ByteBuffer.wrap(Array[Byte](Acknowledge.HeadByte)))
-  }
-
-  final def enqueue(queue: SocketWritingQueue, pack: Renew.type) {
-    queue.enqueue(ByteBuffer.wrap(Array[Byte](Renew.HeadByte)))
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Finish.type) {
@@ -119,9 +116,6 @@ private[bcp] object BcpIo {
       case pack @ HeartBeat => {
         enqueue(queue, pack)
       }
-      case pack @ Renew => {
-        enqueue(queue, pack)
-      }
     }
   }
 
@@ -159,9 +153,6 @@ private[bcp] object BcpIo {
       case Acknowledge.HeadByte => {
         Acknowledge
       }
-      case Renew.HeadByte => {
-        Renew
-      }
       case Finish.HeadByte => {
         Finish
       }
@@ -175,11 +166,15 @@ private[bcp] object BcpIo {
     }
 
   }
+  
+  private implicit def bool2Int(bool: Boolean) = if (bool) 1 else 0
+  private implicit def int2Bool(int: Int) = if (int == 0) false else true
 
   final def receiveHead(stream: SocketInputStream) = Future {
     val sessionId = receiveSessionId(stream).await
+    val isRenew = receiveUnsignedVarint(stream).await
     val connectionId = receiveUnsignedVarint(stream).await
-    ConnectionHead(sessionId, connectionId)
+    ConnectionHead(sessionId, isRenew, connectionId)
   }
 
   private def receiveSessionId(stream: SocketInputStream) = Future[Array[Byte]] {
@@ -190,10 +185,11 @@ private[bcp] object BcpIo {
   }
 
   final def enqueueHead(stream: SocketWritingQueue, head: ConnectionHead) = {
-    val ConnectionHead(sessionId, connectionId) = head
-    val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 5)
+    val ConnectionHead(sessionId, isRenew, connectionId) = head
+    val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 1 + 5)
     headBuffer.put(sessionId)
     writeUnsignedVarint(headBuffer, connectionId)
+    writeUnsignedVarint(headBuffer, isRenew);
     headBuffer.flip()
     stream.enqueue(headBuffer)
   }
