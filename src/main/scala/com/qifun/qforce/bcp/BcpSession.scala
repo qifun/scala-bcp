@@ -113,7 +113,7 @@ private[bcp] object BcpSession {
 
   private type HeartBeatTimer = ScheduledFuture[_]
 
-  private[bcp]type BoxedSessionId = WrappedArray[Byte]
+  private[bcp] type BoxedSessionId = WrappedArray[Byte]
 
   private[bcp] class Connection[Stream <: BcpSession.Stream] {
 

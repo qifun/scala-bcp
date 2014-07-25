@@ -228,7 +228,7 @@ object Bcp {
    */
   case object Finish
     extends ServerToClient with ClientToServer with AcknowledgeRequired {
-    final val HeadByte: Byte = 5
+    final val HeadByte: Byte = 3
   }
 
   /**
@@ -241,7 +241,7 @@ object Bcp {
    * @group Protocols
    */
   object RetransmissionFinish {
-    final val HeadByte: Byte = 6
+    final val HeadByte: Byte = 4
   }
 
   /**
@@ -249,7 +249,7 @@ object Bcp {
    */
   case object ShutDown
     extends ServerToClient with ClientToServer {
-    final val HeadByte: Byte = 7
+    final val HeadByte: Byte = 5
   }
 
   /**
@@ -257,7 +257,7 @@ object Bcp {
    */
   case object HeartBeat
     extends ServerToClient with ClientToServer {
-    final val HeadByte: Byte = 9
+    final val HeadByte: Byte = 6
   }
 
   /**
