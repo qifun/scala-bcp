@@ -67,7 +67,7 @@ abstract class TestServerDemo(port: Int) extends BcpServer {
   startAccept(serverSocket)
 }
 
-class ServerTestDemo {
+object ServerTestDemo {
 
   trait ServerSession { _: BcpServer#Session =>
 
@@ -87,10 +87,9 @@ class ServerTestDemo {
 
   }
 
-  @Test
-  def ServerDemo() {
-    
-    val clients =  TMap.empty[WrappedArray[Byte], Int]
+  def main(args: Array[String]): Unit = {
+
+    val clients = TMap.empty[WrappedArray[Byte], Int]
 
     val server = new TestServerDemo(3333) {
 
