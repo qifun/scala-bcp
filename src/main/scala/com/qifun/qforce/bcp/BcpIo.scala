@@ -11,7 +11,6 @@ import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import java.io.EOFException
 import java.io.IOException
 import scala.collection.mutable.ArrayBuffer
-import scala.language.implicitConversions
 
 private[bcp] object BcpIo {
 
