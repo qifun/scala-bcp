@@ -167,14 +167,14 @@ private[bcp] object BcpIo {
 
   }
   
-  private implicit def bool2Int(bool: Boolean) = if (bool) 1 else 0
-  private implicit def int2Bool(int: Int) = if (int == 0) false else true
+  private def boolToInt(bool: Boolean) = if (bool) 1 else 0
+  private def intToBool(int: Int) = if (int == 0) false else true
 
   final def receiveHead(stream: SocketInputStream) = Future {
     val sessionId = receiveSessionId(stream).await
     val isRenew = receiveUnsignedVarint(stream).await
     val connectionId = receiveUnsignedVarint(stream).await
-    ConnectionHead(sessionId, isRenew, connectionId)
+    ConnectionHead(sessionId, intToBool(isRenew), connectionId)
   }
 
   private def receiveSessionId(stream: SocketInputStream) = Future[Array[Byte]] {
@@ -189,7 +189,7 @@ private[bcp] object BcpIo {
     val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 1 + 5)
     headBuffer.put(sessionId)
     writeUnsignedVarint(headBuffer, connectionId)
-    writeUnsignedVarint(headBuffer, isRenew);
+    writeUnsignedVarint(headBuffer, boolToInt(isRenew));
     headBuffer.flip()
     stream.enqueue(headBuffer)
   }
