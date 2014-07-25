@@ -121,6 +121,7 @@ abstract class BcpServer {
     implicit def catcher: Catcher[Unit] = {
       case e: Exception => {
         logger.info(e)
+        socket.close()
       }
     }
     for (_ <- acceptFuture) {
