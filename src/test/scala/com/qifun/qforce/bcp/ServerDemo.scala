@@ -107,7 +107,8 @@ object ServerDemo {
           val sessionId = session._1
           val sendTimes = clients.getOrElseUpdate(sessionId, 0)
           try {
-            session._2.send(ByteBuffer.wrap(sendTimes.toString.getBytes("UTF-8")))
+            
+            session._2.send(ByteBuffer.wrap(sendTimes.toString.getBytes("UTF-8")).asReadOnlyBuffer)
           } catch {
             case e: Exception =>
           }
