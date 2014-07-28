@@ -88,8 +88,8 @@ abstract class BcpServer {
 
   /**
    * @note [[Array.equals]]不支持比较内容，所以[[TMap]]的键必须使用[[BoxedSessionId]]。
-   */ 
-   val sessions = TMap.empty[BoxedSessionId, Session]
+   */
+  val sessions = TMap.empty[BoxedSessionId, Session]
 
   protected def newSession(sessionId: Array[Byte]): Session
 
@@ -99,7 +99,8 @@ abstract class BcpServer {
     val acceptFuture = Future {
       val head = BcpIo.receiveHead(stream).await
       val ConnectionHead(sessionId, isRenew, connectionId) = head
-      logger.fine(fast"server received sessionId: ${sessionId.toSeq} , connectionId: ${connectionId}")
+      logger.fine(
+        fast"server received sessionId: ${sessionId.toSeq} , isRenew: ${isRenew}, connectionId: ${connectionId}")
       atomic { implicit txn =>
         val session = sessions.get(sessionId) match {
           case None => {
@@ -112,7 +113,7 @@ abstract class BcpServer {
             session
           }
         }
-        if(isRenew) {
+        if (isRenew) {
           session.renewSession()
         }
         session.addStream(connectionId, stream)

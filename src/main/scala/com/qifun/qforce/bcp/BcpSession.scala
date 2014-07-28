@@ -456,7 +456,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
     connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
       case (packId, Data(buffers)) => {
-        buffers.foreach(_.clear())
         enqueue(RetransmissionData(connectionId, packId, buffers))
         packId + 1
       }

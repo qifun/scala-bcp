@@ -73,7 +73,8 @@ private[bcp] object BcpIo {
     writeUnsignedVarint(headBuffer, pack.packId)
     writeUnsignedVarint(headBuffer, pack.buffers.view.map(_.remaining).sum)
     headBuffer.flip()
-    queue.enqueue((headBuffer +: pack.buffers.view): _*)
+    val newBuffer = for (buffer <- pack.buffers) yield buffer.duplicate()
+    queue.enqueue((headBuffer +: newBuffer.view): _*)
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: Data) {
@@ -81,7 +82,8 @@ private[bcp] object BcpIo {
     headBuffer.put(Data.HeadByte)
     writeUnsignedVarint(headBuffer, pack.buffers.view.map(_.remaining).sum)
     headBuffer.flip()
-    queue.enqueue((headBuffer +: pack.buffers.view): _*)
+    val newBuffer = for (buffer <- pack.buffers) yield buffer.duplicate()
+    queue.enqueue((headBuffer +: newBuffer.view): _*)
   }
 
   final def enqueue(queue: SocketWritingQueue, pack: ShutDown.type) {
@@ -165,7 +167,7 @@ private[bcp] object BcpIo {
     }
 
   }
-  
+
   private def boolToInt(bool: Boolean) = if (bool) 1 else 0
   private def intToBool(int: Int) = if (int == 0) false else true
 
@@ -187,8 +189,8 @@ private[bcp] object BcpIo {
     val ConnectionHead(sessionId, isRenew, connectionId) = head
     val headBuffer = ByteBuffer.allocate(NumBytesSessionId + 1 + 5)
     headBuffer.put(sessionId)
+    writeUnsignedVarint(headBuffer, boolToInt(isRenew))
     writeUnsignedVarint(headBuffer, connectionId)
-    writeUnsignedVarint(headBuffer, boolToInt(isRenew));
     headBuffer.flip()
     stream.enqueue(headBuffer)
   }
