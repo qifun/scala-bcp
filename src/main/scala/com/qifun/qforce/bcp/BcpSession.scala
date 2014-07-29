@@ -656,7 +656,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       }
       case _: Left[_, _] =>
     }
-    sendingQueue() = Right(newSendingConnectionQueue)
+    lastConnectionId() = 0
+    sendingQueue() = Left(PacketQueue())
     connections.clear()
   }
 

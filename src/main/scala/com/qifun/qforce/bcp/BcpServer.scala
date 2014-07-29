@@ -114,6 +114,7 @@ abstract class BcpServer {
           }
         }
         if (isRenew) {
+          println("server renew!!!!!!!!!!!!!!!!")
           session.renewSession()
         }
         session.addStream(connectionId, stream)
