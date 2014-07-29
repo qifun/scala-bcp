@@ -57,6 +57,10 @@ object BcpClient {
  *
  */
 abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
+  
+  // TODO 添加一个构造函数，崩溃时重置功能
+  
+  // TODO 添加一个renew接口，Unavailable太长时间时重置功能
 
   import BcpClient.{ logger, formatter, appender }
 
