@@ -377,6 +377,16 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
+  private def printBuffer(buffers: Seq[ByteBuffer]) {
+    var stringBuilder = new StringBuilder
+    buffers foreach { buffer =>
+      val bytes: Array[Byte] = new Array[Byte](buffer.remaining)
+      buffer.duplicate().get(bytes)
+      stringBuilder.append(new String(bytes, "UTF-8"))
+    }
+    logger.fine(stringBuilder.result)
+  }
+
   private def dataReceived(
     connectionId: Int,
     connection: Connection,
@@ -387,6 +397,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     if (idSet.isReceived(packId)) {
       // 已经收过了，直接忽略。
     } else {
+      printBuffer(buffer)
       Txn.afterCommit(_ => received(buffer: _*))
       connection.receiveIdSet() = idSet + packId
       checkConnectionFinish(connectionId, connection)
@@ -707,6 +718,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   }
 
   final def send(buffer: ByteBuffer*) {
+    printBuffer(buffer.toList)
     atomic { implicit txn =>
       enqueue(Data(buffer))
     }
