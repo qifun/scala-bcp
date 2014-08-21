@@ -25,7 +25,6 @@ import java.io.IOException
 import scala.concurrent.stm.Ref
 import scala.concurrent.stm._
 import java.util.concurrent.TimeUnit
-import scala.util.control.Breaks._
 
 object BcpTest {
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
@@ -654,17 +653,9 @@ class BcpTest {
     }
 
     lock.synchronized {
-      while (true) {
-        if (serverResult.get.isFailure || clientResult.get.isFailure) {
-          break
-        } else {
-          if (serverResult.get.get < 1000 || clientResult.get.get < 1000) {
-            println(serverResult.get)
-            lock.wait
-          } else {
-            break
-          }
-        }
+      while (!(serverResult.get.isFailure || clientResult.get.isFailure) &&
+        (serverResult.get.get < 1000 || clientResult.get.get < 1000)) {
+        lock.wait
       }
     }
 
