@@ -25,6 +25,7 @@ import java.io.IOException
 import scala.concurrent.stm.Ref
 import scala.concurrent.stm._
 import java.util.concurrent.TimeUnit
+import scala.util.control.Breaks._
 
 object BcpTest {
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
@@ -86,7 +87,7 @@ class BcpTest {
     @volatile var clientResult: Option[Try[String]] = None
 
     trait ServerSession { _: BcpServer#Session =>
-      
+
       override final def available(): Unit = {}
 
       override final def accepted(): Unit = {}
@@ -550,7 +551,136 @@ class BcpTest {
       case Success(u) => assertEquals(u, true)
       case Failure(e) => throw e
     }
-    
+
+    client.shutDown()
+    server.clear()
+  }
+
+  @Test
+  def fastSendTest() {
+    val lock = new AnyRef
+    @volatile var serverResult: Option[Try[Int]] = Some(Success(0))
+    @volatile var clientResult: Option[Try[Int]] = Some(Success(0))
+
+    trait ServerSession { _: BcpServer#Session =>
+
+      override final def available(): Unit = {}
+
+      override final def accepted(): Unit = {}
+
+      override final def received(pack: ByteBuffer*): Unit = {
+        lock.synchronized {
+          for (Success(oldNum) <- serverResult) {
+            serverResult = Some(Success(oldNum + 1))
+          }
+          send(ByteBuffer.wrap(("""{
+            "response": {
+              """" + (serverResult.get.get - 1) + """"": {
+                "com.qifun.qforce.serverDemo1.entity.IPingPong": {
+				  "pong": [
+					{
+        		  	  "actionID": 0,
+        		  	  "pong": "pong"
+          }]}}""").getBytes("UTF-8")))
+          lock.notify()
+        }
+      }
+
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {}
+
+    }
+
+    val server = new TestServer {
+      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
+
+      override protected final def acceptFailed(throwable: Throwable): Unit = {
+        lock.synchronized {
+          serverResult = Some(Failure(throwable))
+          lock.notify()
+        }
+      }
+    }
+
+    val client = new BcpClient {
+
+      override final def available(): Unit = {}
+
+      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
+        val socket = AsynchronousSocketChannel.open(server.channelGroup)
+        Nio2Future.connect(
+          socket,
+          new InetSocketAddress(
+            "localhost",
+            server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
+        socket
+      }
+
+      override final def executor = new ScheduledThreadPoolExecutor(2)
+
+      override final def received(pack: ByteBuffer*): Unit = {
+        lock.synchronized {
+          for (Success(oldNum) <- clientResult) {
+            clientResult = Some(Success(oldNum + 1))
+          }
+          lock.notify()
+        }
+      }
+
+      override final def interrupted(): Unit = {}
+
+      override final def shutedDown(): Unit = {}
+
+      override final def unavailable(): Unit = {}
+
+    }
+
+    var sendNum = 0;
+    while (sendNum < 1000) {
+      client.send(ByteBuffer.wrap(("""{
+        "request": {
+          """" + sendNum + """"": {
+          "com.qifun.qforce.serverDemo1.entity.IPingPong": {
+            "ping": [
+              {
+                "actionID": 0,
+        		"ping": "ping"
+      }]}}""").getBytes("UTF-8")))
+      sendNum += 1
+      Thread.sleep(1)
+    }
+
+    lock.synchronized {
+      while (true) {
+        if (serverResult.get.isFailure || clientResult.get.isFailure) {
+          break
+        } else {
+          if (serverResult.get.get < 1000 || clientResult.get.get < 1000) {
+            println(serverResult.get)
+            lock.wait
+          } else {
+            break
+          }
+        }
+      }
+    }
+
+    val Some(serverSome) = serverResult
+    val Some(clientSome) = clientResult
+
+    serverSome match {
+      case Success(u) => assertEquals(u, 1000)
+      case Failure(e) => throw e
+    }
+
+    clientSome match {
+      case Success(u) => assertEquals(u, 1000)
+      case Failure(e) => throw e
+    }
+
     client.shutDown()
     server.clear()
   }
