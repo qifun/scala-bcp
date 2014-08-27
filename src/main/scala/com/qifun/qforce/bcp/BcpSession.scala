@@ -395,13 +395,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   }
 
   private def printBuffer(buffers: Seq[ByteBuffer]) {
-    var stringBuilder = new StringBuilder
-    buffers foreach { buffer =>
-      val bytes: Array[Byte] = new Array[Byte](buffer.remaining)
-      buffer.duplicate().get(bytes)
-      stringBuilder.append(new String(bytes, "UTF-8"))
+    logger.fine {
+      var stringBuilder = new StringBuilder
+      buffers foreach { buffer =>
+        val bytes: Array[Byte] = new Array[Byte](buffer.remaining)
+        buffer.duplicate().get(bytes)
+        stringBuilder.append(new String(bytes, "UTF-8"))
+      }
+      stringBuilder.result
     }
-    logger.fine(stringBuilder.result)
   }
 
   private def dataReceived(
