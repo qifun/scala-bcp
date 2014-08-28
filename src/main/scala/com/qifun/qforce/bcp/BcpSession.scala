@@ -340,7 +340,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         {
           logger.fine("Before left enqueue data, sendingQueue: " + sendingQueue())
           if (queueLength >= MaxOfflinePack) {
-            throw new BcpException.SendingQueueIsFull
+            logger.fine("Sending queue is full!")
+            interrupt()
           } else {
             sendingQueue() = Left(PacketQueue(queueLength + 1, packQueue.enqueue(newPack)))
           }
@@ -385,7 +386,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         buffer.duplicate().get(bytes)
         stringBuilder.append(new String(bytes, "UTF-8"))
       }
-      stringBuilder.result
+      this + stringBuilder.result
     }
   }
 
