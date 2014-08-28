@@ -19,6 +19,8 @@ import com.qifun.statelessFuture.Future
 import com.qifun.qforce.bcp.BcpException.DataTooBig
 import java.nio.channels.ClosedChannelException
 import java.nio.channels.ShutdownChannelGroupException
+import scala.concurrent.stm.Txn.Status
+import scala.util.control.Exception
 
 private[bcp] object BcpSession {
 
@@ -240,7 +242,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           connection.unconfirmedPackets.transform(_.enqueue(pack))
         }
         Txn.afterCommit(_ => stream.flush())
-        Txn.afterCommit(_ => available())
+        tryAfterCommit(_ => available())
         if (packQueue.isEmpty) {
           sendingQueue() = Right(newSendingConnectionQueue + (AllConfirmed -> Set(connection)))
         } else {
@@ -259,7 +261,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             val newSendingConnctionQueue = sendingConnectionQueue - time
             if (newSendingConnctionQueue.isEmpty) { // 移除connection后，发送队列为空
               sendingQueue() = Left(PacketQueue())
-              Txn.afterCommit(_ => unavailable())
+              tryAfterCommit(_ => unavailable())
             } else {
               sendingQueue() = Right(newSendingConnctionQueue)
             }
@@ -401,7 +403,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       // 已经收过了，直接忽略。
     } else {
       printBuffer(buffer)
-      Txn.afterCommit(_ => received(buffer: _*))
+      tryAfterCommit(_ => received(buffer: _*))
       connection.receiveIdSet() = idSet + packId
       checkConnectionFinish(connectionId, connection)
     }
@@ -430,7 +432,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       }
       case left: Left[_, _] =>
     }
-    Txn.afterCommit(_ => shutedDown())
+    tryAfterCommit(_ => shutedDown())
   }
 
   private def retransmissionFinishReceived(
@@ -705,7 +707,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() = Left(PacketQueue())
     connections.clear()
     release()
-    Txn.afterCommit(_ => interrupted())
+    tryAfterCommit(_ => interrupted())
   }
 
   final def interrupt() {
@@ -774,6 +776,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         logger.fine(fast"A client atempted to reuse existed connectionId. I rejected it.")
         stream.interrupt()
       }
+    }
+  }
+
+  private def tryAfterCommit(handler: Status => Unit)(implicit txn: InTxnEnd): Unit = {
+    try {
+      Txn.afterCommit(handler)
+    } catch  {
+      case e: Exception =>
+        logger.severe("Try after commit occur exception: " + e)
     }
   }
 
