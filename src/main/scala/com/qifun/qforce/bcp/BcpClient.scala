@@ -48,6 +48,8 @@ object BcpClient {
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
   }
 
+  private val randomSessionId = new SecureRandom
+
 }
 
 /**
@@ -74,12 +76,14 @@ object BcpClient {
  *
  */
 abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
-  
+
   // TODO 添加一个构造函数，崩溃时重置功能
-  
+
   // TODO 添加一个renew接口，Unavailable太长时间时重置功能
 
   import BcpClient.{ logger, formatter, appender }
+  
+  import BcpClient.randomSessionId
 
   private val reconnectTimer = Ref.make[ScheduledFuture[_]]
   private val idleTimer = Ref.make[ScheduledFuture[_]]
@@ -275,9 +279,8 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
 
   private final def start() {
     atomic { implicit txn: InTxn =>
-      val secureRandom = new SecureRandom
-      secureRandom.setSeed(secureRandom.generateSeed(20))
-      secureRandom.nextBytes(sessionId)
+      randomSessionId.setSeed(randomSessionId.generateSeed(20))
+      randomSessionId.nextBytes(sessionId)
       increaseConnection()
     }
   }
