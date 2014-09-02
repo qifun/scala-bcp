@@ -48,7 +48,7 @@ object BcpClient {
   private[BcpClient] final class Connection extends BcpSession.Connection[Stream] {
   }
 
-  private val randomSessionId = new SecureRandom
+  private val sessionIdGenerator = new SecureRandom
 
 }
 
@@ -75,19 +75,21 @@ object BcpClient {
  * 如果BCP客户端连续[[Bcp.IdleTimeout]]，都在过剩状态，那么这个BCP客户端关掉一个TCP连接。
  *
  */
-abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
+abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.Stream, BcpClient.Connection] {
 
+  def this() = this{
+    val id = Array.ofDim[Byte](NumBytesSessionId)
+    BcpClient.sessionIdGenerator.nextBytes(id)
+    id
+  }
   // TODO 添加一个构造函数，崩溃时重置功能
 
   // TODO 添加一个renew接口，Unavailable太长时间时重置功能
 
   import BcpClient.{ logger, formatter, appender }
-  
-  import BcpClient.randomSessionId
 
   private val reconnectTimer = Ref.make[ScheduledFuture[_]]
   private val idleTimer = Ref.make[ScheduledFuture[_]]
-  private val sessionId: Array[Byte] = Array.ofDim[Byte](NumBytesSessionId)
   private val nextConnectionId = Ref(0)
   private val isConnecting = Ref(false)
   private val isShutedDown = Ref(false)
@@ -277,14 +279,10 @@ abstract class BcpClient extends BcpSession[BcpClient.Stream, BcpClient.Connecti
     }
   }
 
-  private final def start() {
+  final def start() {
     atomic { implicit txn: InTxn =>
-      randomSessionId.setSeed(randomSessionId.generateSeed(20))
-      randomSessionId.nextBytes(sessionId)
       increaseConnection()
     }
   }
-
-  start()
 
 }
