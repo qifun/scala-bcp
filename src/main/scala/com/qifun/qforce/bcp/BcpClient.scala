@@ -36,6 +36,7 @@ import com.qifun.statelessFuture.Future
 import com.qifun.statelessFuture.util.Blocking
 import com.qifun.statelessFuture.util.CancellablePromise
 import com.qifun.statelessFuture.util.Sleep
+import java.util.concurrent.CancellationException
 
 object BcpClient {
 
@@ -138,13 +139,14 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     val oldBusyPromise = busyConnection.stream().busyPromise()
     if (oldBusyPromise == null) {
       implicit def catcher: Catcher[Unit] = {
+        case _: CancellationException =>
         case e: Exception =>
           logger.warning(e)
       }
       val newBusyPromise = CancellablePromise[Unit]
       busyConnection.stream().busyPromise() = newBusyPromise
       Txn.afterCommit { _ =>
-        newBusyPromise.foreach { _ => busyComplete(busyConnection, newBusyPromise) }
+        newBusyPromise.foreach(_ => busyComplete(busyConnection, newBusyPromise))
         Sleep.start(newBusyPromise, executor, BusyTimeout)
       }
       busyConnection.stream().connectionState() = ConnectionBusy
@@ -164,7 +166,10 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   override private[bcp] final def idle(connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.info("the connection is idle!")
     val busyPromise = connection.stream().busyPromise()
-    Txn.afterCommit(_ => busyPromise.cancel())
+    if (busyPromise != null) {
+      connection.stream().busyPromise() = null
+      Txn.afterCommit(_ => busyPromise.cancel())
+    }
     connection.stream().connectionState() = ConnectionIdle
     checkFinishConnection()
   }
@@ -267,6 +272,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
         connection._2.stream() != null && connection._2.stream().connectionState() == ConnectionIdle)) { // 过剩状态
       if (idlePromise() == null) {
         implicit def catcher: Catcher[Unit] = {
+          case _: CancellationException =>
           case e: Exception =>
             logger.warning(e)
         }
@@ -293,6 +299,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   private final def startReconnectTimer()(implicit txn: InTxn): Unit = {
     if (reconnectPromise() == null) {
       implicit def catcher: Catcher[Unit] = {
+        case _: CancellationException =>
         case e: Exception =>
           logger.warning(e)
       }
