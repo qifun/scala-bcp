@@ -34,6 +34,8 @@ import com.qifun.qforce.bcp.Bcp._
 import com.qifun.qforce.bcp.BcpSession._
 import com.qifun.statelessFuture.Future
 import com.qifun.statelessFuture.util.Blocking
+import com.qifun.statelessFuture.util.CancellablePromise
+import com.qifun.statelessFuture.util.Sleep
 
 object BcpClient {
 
@@ -41,7 +43,7 @@ object BcpClient {
 
   private[BcpClient] final class Stream(socket: AsynchronousSocketChannel) extends BcpSession.Stream(socket) {
     // 客户端专有的数据结构，比如Timer
-    val busyTimer = Ref.make[ScheduledFuture[_]]
+    val busyPromise = Ref.make[CancellablePromise[Unit]]
     val connectionState: Ref[ConnectionState] = Ref(ConnectionIdle)
   }
 
@@ -88,8 +90,8 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
 
   import BcpClient.{ logger, formatter, appender }
 
-  private val reconnectTimer = Ref.make[ScheduledFuture[_]]
-  private val idleTimer = Ref.make[ScheduledFuture[_]]
+  private val reconnectPromise = Ref.make[CancellablePromise[Unit]]
+  private val idlePromise = Ref.make[CancellablePromise[Unit]]
   private val nextConnectionId = Ref(0)
   private val isConnecting = Ref(false)
   private val isShutedDown = Ref(false)
@@ -104,51 +106,56 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
 
   override private[bcp] final def release()(implicit txn: InTxn) {
     isShutedDown() = true
-    val oldReconnectTimer = reconnectTimer()
-    reconnectTimer() = null;
-    if (oldReconnectTimer != null) {
-      Txn.afterCommit(_ => oldReconnectTimer.cancel(false))
+    val oldReconnectPromise = reconnectPromise()
+    reconnectPromise() = null;
+    if (oldReconnectPromise != null) {
+      Txn.afterCommit(_ => oldReconnectPromise.cancel())
     }
-    val oldIdleTimer = idleTimer()
-    idleTimer() = null;
-    if (oldIdleTimer != null) {
-      Txn.afterCommit(_ => oldIdleTimer.cancel(false))
+    val oldIdlePromise = idlePromise()
+    idlePromise() = null;
+    if (oldIdlePromise != null) {
+      Txn.afterCommit(_ => oldIdlePromise.cancel())
+    }
+  }
+
+  private def busyComplete(busyConnection: BcpClient.Connection, thisTimer: CancellablePromise[Unit]): Unit = {
+    atomic { implicit txn =>
+      if (busyConnection.stream() != null && busyConnection.stream().busyPromise() == thisTimer) {
+        busyConnection.stream().connectionState() = ConnectionSlow
+        increaseConnection()
+        busyConnection.stream().busyPromise() = null
+      }
     }
   }
 
   override private[bcp] final def busy(busyConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.info("the connection is busy!")
-    val oldReconnectTimer = reconnectTimer()
-    if (oldReconnectTimer != null) {
-      reconnectTimer() = null
-      Txn.afterCommit(_ => oldReconnectTimer.cancel(false))
+    val oldReconnectPromise = reconnectPromise()
+    if (oldReconnectPromise != null) {
+      reconnectPromise() = null
+      Txn.afterCommit(_ => oldReconnectPromise.cancel())
     }
-    val oldBusyTimer = busyConnection.stream().busyTimer()
-    if (oldBusyTimer == null || oldBusyTimer.isDone()) {
-      val newBusyTimer = internalExecutor.schedule(new Runnable() {
-        def run() {
-          try {
-            atomic { implicit txn =>
-              if (busyConnection.stream() != null) {
-                busyConnection.stream().connectionState() = ConnectionSlow
-              }
-              increaseConnection()
-            }
-          } catch {
-            case e: Exception =>
-              logger.severe(e)
-          }
-        }
-      }, BusyTimeout.length, BusyTimeout.unit)
-      Txn.afterRollback(_ => newBusyTimer.cancel(false))
-      busyConnection.stream().busyTimer() = newBusyTimer
+    val oldBusyPromise = busyConnection.stream().busyPromise()
+    if (oldBusyPromise == null) {
+      implicit def catcher: Catcher[Unit] = {
+        case e: Exception =>
+          logger.warning(e)
+      }
+      val newBusyPromise = CancellablePromise[Unit]
+      busyConnection.stream().busyPromise() = newBusyPromise
+      Txn.afterCommit { _ =>
+        newBusyPromise.foreach { _ => busyComplete(busyConnection, newBusyPromise) }
+        Sleep.start(newBusyPromise, executor, BusyTimeout)
+      }
       busyConnection.stream().connectionState() = ConnectionBusy
       // bcp-client 不是过剩状态
       if (!(connections.size > 1 &&
         connections.exists(connection =>
           connection._2.stream() != null && connection._2.stream().connectionState() == ConnectionIdle))) {
-        if (idleTimer() != null && !idleTimer().isDone()) {
-          Txn.afterCommit(_ => idleTimer().cancel(false))
+        val oldIdlePromise = idlePromise()
+        if (oldIdlePromise != null) {
+          idlePromise() = null
+          Txn.afterCommit(_ => oldIdlePromise.cancel())
         }
       }
     }
@@ -156,8 +163,8 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
 
   override private[bcp] final def idle(connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.info("the connection is idle!")
-    val busyTimer = connection.stream().busyTimer()
-    Txn.afterCommit(_ => busyTimer.cancel(false))
+    val busyPromise = connection.stream().busyPromise()
+    Txn.afterCommit(_ => busyPromise.cancel())
     connection.stream().connectionState() = ConnectionIdle
     checkFinishConnection()
   }
@@ -165,10 +172,10 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   override private[bcp] final def close(closeConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     val connectionSize = connections.size
     if (closeConnection.stream() != null) {
-      val busyTimer = closeConnection.stream().busyTimer()
-      if (busyTimer != null) {
-        closeConnection.stream().busyTimer() = null
-        Txn.afterCommit(_ => busyTimer.cancel(false))
+      val busyPromise = closeConnection.stream().busyPromise()
+      if (busyPromise != null) {
+        closeConnection.stream().busyPromise() = null
+        Txn.afterCommit(_ => busyPromise.cancel())
       }
     }
     if (connections.forall(connection =>
@@ -196,10 +203,32 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
         addStream(connectionId, stream)
         isConnecting() = false
       } else {
-        socket.close()
+        Txn.afterCommit { _ =>
+          socket.close()
+        }
       }
     }
     stream.flush()
+  }
+
+  private def tryIncreaseConnection(connectionId: Int) {
+    val connectFuture = Future {
+      val socket = connect().await
+      afterConnect(socket, connectionId).await
+    }
+    implicit def catcher: Catcher[Unit] = {
+      case e: Exception => {
+        logger.severe(e)
+        atomic { implicit txn =>
+          if (!isShutedDown()) {
+            startReconnectTimer()
+          }
+        }
+      }
+    }
+    for (_ <- connectFuture) {
+      logger.fine("Increase connection success.")
+    }
   }
 
   private final def increaseConnection()(implicit txn: InTxn) {
@@ -212,23 +241,22 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       val connectionId = nextConnectionId() + 1
       nextConnectionId() = nextConnectionId() + 1
       Txn.afterCommit { _ =>
-        val connectFuture = Future {
-          val socket = connect().await
-          afterConnect(socket, connectionId).await
+        tryIncreaseConnection(connectionId)
+      }
+    }
+  }
+
+  def idleComplete(thisTimer: CancellablePromise[Unit]): Unit = {
+    atomic { implicit txn =>
+      if (idlePromise() == thisTimer) {
+        connections.find(connection =>
+          (connection._2.stream() != null) &&
+            (connection._2.stream().connectionState() == ConnectionIdle)) match {
+          case Some((connectionId, toFinishConnection)) =>
+            finishConnection(connectionId, toFinishConnection)
+          case None =>
         }
-        implicit def catcher: Catcher[Unit] = {
-          case e: Exception => {
-            logger.severe(e)
-            atomic { implicit txn =>
-              if (!isShutedDown()) {
-                startReconnectTimer()
-              }
-            }
-          }
-        }
-        for (_ <- connectFuture) {
-          logger.fine("Increase connection success.")
-        }
+        idlePromise() == null
       }
     }
   }
@@ -237,45 +265,44 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     if (connections.size > 1 &&
       connections.exists(connection =>
         connection._2.stream() != null && connection._2.stream().connectionState() == ConnectionIdle)) { // 过剩状态
-      if (idleTimer() == null || idleTimer().isDone()) {
-        val newIdleTimer = internalExecutor.schedule(new Runnable() {
-          def run() {
-            try {
-              atomic { implicit txn =>
-                connections.find(connection =>
-                  (connection._2.stream() != null) &&
-                    (connection._2.stream().connectionState() == ConnectionIdle)) match {
-                  case Some((connectionId, toFinishConnection)) =>
-                    finishConnection(connectionId, toFinishConnection)
-                  case None =>
-                }
-              }
-            } catch {
-              case e: Exception =>
-                logger.severe(e)
-            }
-          }
-        }, IdleTimeout.length, IdleTimeout.unit)
+      if (idlePromise() == null) {
+        implicit def catcher: Catcher[Unit] = {
+          case e: Exception =>
+            logger.warning(e)
+        }
+        val newIdlePromise = CancellablePromise[Unit]
+        idlePromise() = newIdlePromise
+        Txn.afterCommit { _ =>
+          newIdlePromise.foreach { _ => idleComplete(newIdlePromise) }
+          Sleep.start(newIdlePromise, executor, IdleTimeout)
+        }
+
+      }
+    }
+  }
+
+  private def reconnectComplete(thisTimer: CancellablePromise[Unit]): Unit = {
+    atomic { implicit txn =>
+      if (reconnectPromise() == thisTimer) {
+        reconnectPromise() = null
+        increaseConnection()
       }
     }
   }
 
   private final def startReconnectTimer()(implicit txn: InTxn): Unit = {
-    if (reconnectTimer() == null || reconnectTimer().isDone()) {
-      val newBusyTimer = internalExecutor.schedule(new Runnable() {
-        def run() {
-          try {
-            atomic { implicit txn =>
-              increaseConnection()
-            }
-          } catch {
-            case e: Exception =>
-              logger.severe(e)
-          }
-        }
-      }, ReconnectTimeout.length, ReconnectTimeout.unit)
-      Txn.afterRollback(_ => newBusyTimer.cancel(false))
-      reconnectTimer() = newBusyTimer
+    if (reconnectPromise() == null) {
+      implicit def catcher: Catcher[Unit] = {
+        case e: Exception =>
+          logger.warning(e)
+      }
+      val newReconnectPromise = CancellablePromise[Unit]
+      reconnectPromise() = newReconnectPromise
+      Txn.afterCommit { _ =>
+        newReconnectPromise.foreach { _ => reconnectComplete(newReconnectPromise) }
+        Sleep.start(newReconnectPromise, executor, ReconnectTimeout)
+      }
+      reconnectPromise() = newReconnectPromise
     }
   }
 
