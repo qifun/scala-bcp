@@ -360,7 +360,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           logger.fine("Before left enqueue data, sendingQueue: " + sendingQueue())
           if (queueLength >= MaxOfflinePack) {
             logger.fine("Sending queue is full!")
-            interrupt()
+            internalInterrupt()
           } else {
             sendingQueue() = Left(PacketQueue(queueLength + 1, packQueue.enqueue(newPack)))
           }
@@ -436,8 +436,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
           close(connection)
           val stream = connection.stream()
           val heartBeatTimer = stream.heartBeatTimer()
-          heartBeatTimer.cancel(false)
           stream.heartBeatTimer() = null
+          Txn.afterCommit { _ => heartBeatTimer.cancel(false) }
           connection.stream() = null
           assert(stream != null)
           // 直接关闭所有TCP连接，对端要是还没收到ShutDownInput的Acknowledge的话，只能靠TCP的CLOSE_WAIT机制了。
@@ -799,7 +799,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def tryAfterCommit(handler: Status => Unit)(implicit txn: InTxnEnd): Unit = {
     try {
       Txn.afterCommit(handler)
-    } catch  {
+    } catch {
       case e: Exception =>
         logger.severe("Try after commit occur exception: " + e)
     }

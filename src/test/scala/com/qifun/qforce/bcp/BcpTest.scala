@@ -170,6 +170,8 @@ class BcpTest {
 
     }
 
+    client.start()
+
     client.send(ByteBuffer.wrap("ping".getBytes("UTF-8")))
 
     lock.synchronized {
@@ -258,6 +260,8 @@ class BcpTest {
       override final def unavailable(): Unit = {}
 
     }
+
+    client.start()
 
     client.shutDown()
 
@@ -349,6 +353,8 @@ class BcpTest {
       }
 
     }
+
+    client.start()
 
     // 等待连接成功
     lock.synchronized {
@@ -453,6 +459,8 @@ class BcpTest {
       }
 
     }
+    
+    client.start()
 
     // 等待连接成功
     lock.synchronized {
@@ -555,6 +563,8 @@ class BcpTest {
       }
 
     }
+    
+    client.start()
 
     lock.synchronized {
       while (clientInterrupteResult == None) {
@@ -653,6 +663,8 @@ class BcpTest {
       override final def unavailable(): Unit = {}
 
     }
+    
+    client.start()
 
     var sendNum = 0;
     while (sendNum < 1000) {
