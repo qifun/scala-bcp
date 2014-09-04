@@ -711,6 +711,9 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
+  /**
+   * 立即释放资源、断开会话。
+   */
   final def shutDown() {
     atomic { implicit txn: InTxn =>
       checkShutDown()
