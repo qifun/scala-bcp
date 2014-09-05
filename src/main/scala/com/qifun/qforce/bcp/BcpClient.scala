@@ -140,6 +140,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     if (oldBusyPromise == null) {
       implicit def catcher: Catcher[Unit] = {
         case _: CancellationException =>
+          logger.finer("The busy timer is cancelled!")
         case e: Exception =>
           logger.warning(e)
       }
@@ -273,6 +274,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       if (idlePromise() == null) {
         implicit def catcher: Catcher[Unit] = {
           case _: CancellationException =>
+            logger.finer("The finish connection is cancelled!")
           case e: Exception =>
             logger.warning(e)
         }
@@ -300,6 +302,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     if (reconnectPromise() == null) {
       implicit def catcher: Catcher[Unit] = {
         case _: CancellationException =>
+          logger.finer("The reconnect timer is cancelled!")
         case e: Exception =>
           logger.warning(e)
       }
