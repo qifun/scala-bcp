@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qifun.qforce.bcp
+package com.qifun.bcp
 
 import java.nio.ByteBuffer
 import org.junit.Test

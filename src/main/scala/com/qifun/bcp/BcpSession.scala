@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qifun.qforce.bcp
+package com.qifun.bcp
 
 import com.dongxiguo.fastring.Fastring.Implicits._
 import java.nio.ByteBuffer
@@ -33,7 +33,7 @@ import scala.concurrent.stm.Txn
 import java.util.concurrent.ScheduledExecutorService
 import scala.util.control.Exception.Catcher
 import com.qifun.statelessFuture.Future
-import com.qifun.qforce.bcp.BcpException.DataTooBig
+import com.qifun.bcp.BcpException.DataTooBig
 import java.nio.channels.ClosedChannelException
 import java.nio.channels.ShutdownChannelGroupException
 import scala.concurrent.stm.Txn.Status

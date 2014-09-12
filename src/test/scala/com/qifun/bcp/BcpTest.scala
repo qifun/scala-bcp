@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qifun.qforce.bcp
+package com.qifun.bcp
 
 import org.junit._
 import Assert._

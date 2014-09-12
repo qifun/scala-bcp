@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qifun.qforce.bcp
+package com.qifun.bcp
 
 import java.nio.channels.AsynchronousSocketChannel
 import java.security.SecureRandom
@@ -30,8 +30,8 @@ import scala.concurrent.stm.atomic
 import scala.reflect.classTag
 import scala.util.control.Exception.Catcher
 import com.dongxiguo.fastring.Fastring.Implicits._
-import com.qifun.qforce.bcp.Bcp._
-import com.qifun.qforce.bcp.BcpSession._
+import com.qifun.bcp.Bcp._
+import com.qifun.bcp.BcpSession._
 import com.qifun.statelessFuture.Future
 import com.qifun.statelessFuture.util.Blocking
 import com.qifun.statelessFuture.util.CancellablePromise

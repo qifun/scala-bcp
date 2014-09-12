@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qifun.qforce.bcp
+package com.qifun.bcp
 
 import com.dongxiguo.fastring.Fastring.Implicits._
 import java.io.IOException
@@ -41,9 +41,9 @@ import com.qifun.statelessFuture.util.io.SocketInputStream
 import com.qifun.statelessFuture.util.io.SocketWritingQueue
 import com.qifun.statelessFuture.Future
 import scala.collection.immutable.Queue
-import com.qifun.qforce.bcp.Bcp._
+import com.qifun.bcp.Bcp._
 import BcpServer._
-import com.qifun.qforce.bcp.BcpSession._
+import com.qifun.bcp.BcpSession._
 import com.dongxiguo.fastring.Fastring.Implicits._
 import java.io.EOFException
 import com.sun.jndi.ldap.pool.Connections
