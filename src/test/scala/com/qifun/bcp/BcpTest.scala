@@ -596,9 +596,13 @@ class BcpTest {
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
-          for (Success(oldNum) <- serverResult) {
-            serverResult = Some(Success(oldNum + 1))
-          }
+	  serverResult match {
+            case Some(s) => {
+              val Success(oldNum) = s
+              serverResult = Some(Success(oldNum + 1))
+	    }
+            case None =>
+	  }
           send(ByteBuffer.wrap(("""{
             "response": {
               """" + (serverResult.get.get - 1) + """"": {
@@ -706,3 +710,5 @@ class BcpTest {
   }
 
 }
+
+// vim: sts=2 sw=2 et
