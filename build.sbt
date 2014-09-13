@@ -10,6 +10,12 @@ scalacOptions += "-feature"
 
 scalacOptions in Compile in doc += "-groups"
 
+name := "scala-bcp"
+
+organization := "com.qifun"
+
+version := "0.1.0"
+
 crossScalaVersions := Seq("2.10.4", "2.11.2")
 
 homepage := Some(url(s"https://github.com/qifun/${name.value}"))
