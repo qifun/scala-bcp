@@ -14,7 +14,7 @@ name := "scala-bcp"
 
 organization := "com.qifun"
 
-version := "0.1.0"
+version := "0.1.1-SNAPSHOT"
 
 crossScalaVersions := Seq("2.10.4", "2.11.2")
 
