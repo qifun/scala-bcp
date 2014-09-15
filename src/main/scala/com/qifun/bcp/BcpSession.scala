@@ -38,6 +38,7 @@ import java.nio.channels.ClosedChannelException
 import java.nio.channels.ShutdownChannelGroupException
 import scala.concurrent.stm.Txn.Status
 import scala.util.control.Exception
+import java.io.EOFException
 
 private[bcp] object BcpSession {
 
@@ -654,7 +655,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
 
     implicit def catcher: Catcher[Unit] = {
-      case e @ (_: ClosedChannelException | _: ShutdownChannelGroupException) => {
+      case e @ (_: ClosedChannelException | _: ShutdownChannelGroupException | _: EOFException) => {
         // 由于自己主动关闭连接而触发异常
         logger.fine(e)
         atomic { implicit txn =>
