@@ -130,7 +130,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   }
 
   override private[bcp] final def busy(busyConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
-    logger.info("the connection is busy!")
+    logger.finest("the connection is busy!")
     val oldReconnectPromise = reconnectPromise()
     if (oldReconnectPromise != null) {
       reconnectPromise() = null
@@ -165,7 +165,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   }
 
   override private[bcp] final def idle(connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
-    logger.info("the connection is idle!")
+    logger.finest("the connection is idle!")
     val busyPromise = connection.stream().busyPromise()
     if (busyPromise != null) {
       connection.stream().busyPromise() = null
@@ -197,7 +197,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   }
 
   private def afterConnect(socket: AsynchronousSocketChannel, connectionId: Int): Future[Unit] = Future {
-    logger.fine(fast"bcp client connect server success, socket: ${socket}")
+    logger.finer(fast"bcp client connect server success, socket: ${socket}")
     val stream = new BcpClient.Stream(socket)
     atomic { implicit txn =>
       if (!isShutedDown()) {
@@ -233,7 +233,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       }
     }
     for (_ <- connectFuture) {
-      logger.fine("Increase connection success.")
+      logger.finest("Increase connection success.")
     }
   }
 
