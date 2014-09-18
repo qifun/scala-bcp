@@ -582,7 +582,6 @@ class BcpTest {
     server.clear()
   }
 
-  @Test
   def fastSendTest() {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[Int]] = Some(Success(0))
