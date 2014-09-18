@@ -177,13 +177,15 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
 
   override private[bcp] final def idle(connection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.finest("the connection is idle!")
-    val busyPromise = connection.stream().busyPromise()
-    if (busyPromise != null) {
-      connection.stream().busyPromise() = null
-      Txn.afterCommit(_ => busyPromise.cancel())
+    if (connection.stream() != null) {
+      val busyPromise = connection.stream().busyPromise()
+      if (busyPromise != null) {
+        connection.stream().busyPromise() = null
+        Txn.afterCommit(_ => busyPromise.cancel())
+      }
+      connection.stream().connectionState() = ConnectionIdle
+      checkFinishConnection()
     }
-    connection.stream().connectionState() = ConnectionIdle
-    checkFinishConnection()
   }
 
   override private[bcp] final def close(closeConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
