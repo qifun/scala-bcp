@@ -710,4 +710,5 @@ class BcpTest {
 
 }
 
+// just for test
 // vim: sts=2 sw=2 et
