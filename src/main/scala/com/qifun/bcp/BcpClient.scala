@@ -18,25 +18,36 @@
 package com.qifun.bcp
 
 import java.nio.channels.AsynchronousSocketChannel
+import java.nio.channels.ShutdownChannelGroupException
 import java.security.SecureRandom
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.ScheduledFuture
-import scala.PartialFunction
-import scala.concurrent.duration._
+
 import scala.concurrent.stm.InTxn
 import scala.concurrent.stm.Ref
+import scala.concurrent.stm.TMap.asMap
 import scala.concurrent.stm.Txn
 import scala.concurrent.stm.atomic
-import scala.reflect.classTag
 import scala.util.control.Exception.Catcher
-import com.dongxiguo.fastring.Fastring.Implicits._
-import com.qifun.bcp.Bcp._
-import com.qifun.bcp.BcpSession._
+
+import com.dongxiguo.fastring.Fastring.Implicits.FastringContext
+import com.dongxiguo.zeroLog.LogRecord.StringLogRecord
+import com.dongxiguo.zeroLog.LogRecord.ThrowableLogRecord
+import com.qifun.bcp.Bcp.BusyTimeout
+import com.qifun.bcp.Bcp.ConnectionBusy
+import com.qifun.bcp.Bcp.ConnectionHead
+import com.qifun.bcp.Bcp.ConnectionIdle
+import com.qifun.bcp.Bcp.ConnectionSlow
+import com.qifun.bcp.Bcp.ConnectionState
+import com.qifun.bcp.Bcp.IdleTimeout
+import com.qifun.bcp.Bcp.MaxActiveConnectionsPerSession
+import com.qifun.bcp.Bcp.MaxConnectionsPerSession
+import com.qifun.bcp.Bcp.NumBytesSessionId
+import com.qifun.bcp.Bcp.ReconnectTimeout
 import com.qifun.statelessFuture.Future
-import com.qifun.statelessFuture.util.Blocking
+import com.qifun.statelessFuture.Future.apply
 import com.qifun.statelessFuture.util.CancellablePromise
 import com.qifun.statelessFuture.util.Sleep
-import java.util.concurrent.CancellationException
 
 object BcpClient {
 
@@ -223,6 +234,9 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       afterConnect(socket, connectionId).await
     }
     implicit def catcher: Catcher[Unit] = {
+      case e: ShutdownChannelGroupException => {
+        logger.finer(e)
+      }
       case e: Exception => {
         logger.severe(e)
         atomic { implicit txn =>
