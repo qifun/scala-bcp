@@ -584,13 +584,13 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                           Right(sendingConnectionQueue + (time -> newOpenConnections) +
                             (AllConfirmed -> (allConfirmedConnections + connection)))
                       }
+                      idle(connection)
                     case _ =>
                       // 链接已经从sendingConnectionQueue中移除
                   }
                   logger.fine("After Acknowledge, sendingQueue" + sendingQueue())
                 case left: Left[_, _] =>
               }
-              idle(connection)
             }
             originalPack match {
               case Data(buffer) => {
