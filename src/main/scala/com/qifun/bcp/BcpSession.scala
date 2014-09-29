@@ -572,16 +572,20 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               sendingQueue() match {
                 case Right(sendingConnectionQueue) =>
                   logger.fine("Before Acknowledge, sendingQueue: " + sendingConnectionQueue)
-                  val (time, openConnections) = (sendingConnectionQueue.find({ _._2.contains(connection) })).get
-                  val newOpenConnections = openConnections - connection
-                  val allConfirmedConnections = sendingConnectionQueue.getOrElse(AllConfirmed, Set[Connection]())
-                  if (newOpenConnections.isEmpty) {
-                    sendingQueue() =
-                      Right(sendingConnectionQueue - time + (AllConfirmed -> (allConfirmedConnections + connection)))
-                  } else {
-                    sendingQueue() =
-                      Right(sendingConnectionQueue + (time -> newOpenConnections) +
-                        (AllConfirmed -> (allConfirmedConnections + connection)))
+                  (sendingConnectionQueue.find({ _._2.contains(connection) })).get match {
+                    case (time, openConnections) =>
+                      val newOpenConnections = openConnections - connection
+                      val allConfirmedConnections = sendingConnectionQueue.getOrElse(AllConfirmed, Set[Connection]())
+                      if (newOpenConnections.isEmpty) {
+                        sendingQueue() =
+                          Right(sendingConnectionQueue - time + (AllConfirmed -> (allConfirmedConnections + connection)))
+                      } else {
+                        sendingQueue() =
+                          Right(sendingConnectionQueue + (time -> newOpenConnections) +
+                            (AllConfirmed -> (allConfirmedConnections + connection)))
+                      }
+                    case _ =>
+                      // 链接已经从sendingConnectionQueue中移除
                   }
                   logger.fine("After Acknowledge, sendingQueue" + sendingQueue())
                 case left: Left[_, _] =>
