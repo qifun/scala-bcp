@@ -142,6 +142,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
 
   override private[bcp] final def busy(busyConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.finest("the connection is busy!")
+    busyConnection.stream().connectionState() = ConnectionBusy
     val oldReconnectPromise = reconnectPromise()
     if (oldReconnectPromise != null) {
       reconnectPromise() = null
@@ -161,7 +162,6 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
         newBusyPromise.foreach(_ => busyComplete(busyConnection, newBusyPromise))
         Sleep.start(newBusyPromise, executor, BusyTimeout)
       }
-      busyConnection.stream().connectionState() = ConnectionBusy
       // bcp-client 不是过剩状态
       if (!(connections.size > 1 &&
         connections.exists(connection =>
