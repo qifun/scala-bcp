@@ -741,13 +741,13 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   /**
    * 立即释放资源、断开会话。
    */
-  final def shutDown() {
+  final def shutDown(): Unit = {
     atomic { implicit txn: InTxn =>
       checkShutDown()
     }
   }
 
-  final def send(buffer: ByteBuffer*) {
+  final def send(buffer: ByteBuffer*): Unit = {
     printBuffer(buffer.toList)
     atomic { implicit txn =>
       enqueue(Data(buffer))
