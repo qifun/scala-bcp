@@ -572,8 +572,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
               sendingQueue() match {
                 case Right(sendingConnectionQueue) =>
                   logger.fine("Before Acknowledge, sendingQueue: " + sendingConnectionQueue)
-                  (sendingConnectionQueue.find({ _._2.contains(connection) })).get match {
-                    case (time, openConnections) =>
+                  (sendingConnectionQueue.find({ _._2.contains(connection) })) match {
+                    case Some((time, openConnections)) =>
                       val newOpenConnections = openConnections - connection
                       val allConfirmedConnections = sendingConnectionQueue.getOrElse(AllConfirmed, Set[Connection]())
                       if (newOpenConnections.isEmpty) {
