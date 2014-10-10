@@ -578,7 +578,6 @@ class BcpTest {
       case Failure(e) => throw e
     }
 
-    client.shutDown()
     server.clear()
   }
 
