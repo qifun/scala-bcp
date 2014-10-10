@@ -39,6 +39,8 @@ import java.nio.channels.ShutdownChannelGroupException
 import scala.concurrent.stm.Txn.Status
 import scala.util.control.Exception
 import java.io.EOFException
+import java.io.IOException
+import java.nio.channels.InterruptedByTimeoutException
 
 private[bcp] object BcpSession {
 
@@ -394,7 +396,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
-      connections.remove(connectionId)
+      val removedConnection = connections.remove(connectionId)
+      assert(removedConnection == Some(connection))
     }
   }
 
@@ -461,7 +464,6 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     connection.finishIdReceived() match {
       case None => {
         connection.finishIdReceived() = Some(packId)
-        checkConnectionFinish(connectionId, connection)
         // 无需触发事件通知用户，结束的只是一个连接，而不是整个Session
       }
       case Some(originalPackId) => {
@@ -566,6 +568,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         }
         case Acknowledge => {
           atomic { implicit txn =>
+            assert(connection.unconfirmedPackets().size > 0)
             val (originalPack, queue) = connection.unconfirmedPackets().dequeue
             connection.unconfirmedPackets() = queue
             if (queue.isEmpty) {
@@ -586,7 +589,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                       }
                       idle(connection)
                     case _ =>
-                      // 链接已经从sendingConnectionQueue中移除
+                    // 链接已经从sendingConnectionQueue中移除
                   }
                   logger.fine("After Acknowledge, sendingQueue" + sendingQueue())
                 case left: Left[_, _] =>
@@ -659,15 +662,19 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
 
     implicit def catcher: Catcher[Unit] = {
-      case e @ (_: ClosedChannelException | _: ShutdownChannelGroupException | _: EOFException) => {
-        // 由于自己主动关闭连接而触发异常
+      case e @ (_: ClosedChannelException |
+        _: ShutdownChannelGroupException |
+        _: EOFException |
+        _: InterruptedByTimeoutException |
+        _: IOException) => {
+        // 由于关闭连接而触发异常
         logger.fine(e)
         atomic { implicit txn =>
           cleanUp(connectionId, connection)
         }
       }
       case e: Exception => {
-        // 由于协议错误、对端断开连接、网络繁忙，而触发异常
+        // 由于协议错误，而触发异常
         logger.warning(e)
         stream.interrupt()
         atomic { implicit txn =>

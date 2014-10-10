@@ -22,14 +22,12 @@ import java.nio.channels.ShutdownChannelGroupException
 import java.security.SecureRandom
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ScheduledExecutorService
-
 import scala.concurrent.stm.InTxn
 import scala.concurrent.stm.Ref
 import scala.concurrent.stm.TMap.asMap
 import scala.concurrent.stm.Txn
 import scala.concurrent.stm.atomic
 import scala.util.control.Exception.Catcher
-
 import com.dongxiguo.fastring.Fastring.Implicits.FastringContext
 import com.dongxiguo.zeroLog.LogRecord.StringLogRecord
 import com.dongxiguo.zeroLog.LogRecord.ThrowableLogRecord
@@ -48,6 +46,7 @@ import com.qifun.statelessFuture.Future
 import com.qifun.statelessFuture.Future.apply
 import com.qifun.statelessFuture.util.CancellablePromise
 import com.qifun.statelessFuture.util.Sleep
+import java.io.IOException
 
 object BcpClient {
 
@@ -117,6 +116,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   override private[bcp] final def internalExecutor: ScheduledExecutorService = executor
 
   override private[bcp] final def release()(implicit txn: InTxn) {
+    assert(!isShutedDown())
     isShutedDown() = true
     val oldReconnectPromise = reconnectPromise()
     reconnectPromise() = null;
@@ -209,11 +209,13 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     }
   }
 
-  private def afterConnect(socket: AsynchronousSocketChannel, connectionId: Int): Future[Unit] = Future {
+  private def afterConnect(socket: AsynchronousSocketChannel): Future[Unit] = Future {
     logger.finer(fast"bcp client connect server success, socket: ${socket}")
     val stream = new BcpClient.Stream(socket)
     atomic { implicit txn =>
       if (!isShutedDown()) {
+        val connectionId = nextConnectionId() + 1
+        nextConnectionId() = nextConnectionId() + 1
         Txn.afterCommit { _ =>
           BcpIo.enqueueHead(stream, ConnectionHead(sessionId, false, connectionId))
           logger.fine(
@@ -230,13 +232,16 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     stream.flush()
   }
 
-  private def tryIncreaseConnection(connectionId: Int) {
+  private def tryIncreaseConnection() {
     val connectFuture = Future {
       val socket = connect().await
-      afterConnect(socket, connectionId).await
+      afterConnect(socket).await
     }
     implicit def catcher: Catcher[Unit] = {
       case e: ShutdownChannelGroupException => {
+        logger.finer(e)
+      }
+      case e: IOException => {
         logger.finer(e)
       }
       case e: Exception => {
@@ -260,10 +265,8 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       connections.forall(connection =>
         connection._2.stream() == null || connection._2.stream().connectionState() == ConnectionSlow)) {
       isConnecting() = true
-      val connectionId = nextConnectionId() + 1
-      nextConnectionId() = nextConnectionId() + 1
       Txn.afterCommit { _ =>
-        tryIncreaseConnection(connectionId)
+        tryIncreaseConnection()
       }
     }
   }
@@ -300,7 +303,6 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
           newIdlePromise.foreach { _ => idleComplete(newIdlePromise) }
           Sleep.start(newIdlePromise, executor, IdleTimeout)
         }
-
       }
     }
   }
