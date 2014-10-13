@@ -47,6 +47,7 @@ import com.qifun.bcp.BcpSession._
 import com.dongxiguo.fastring.Fastring.Implicits._
 import java.io.EOFException
 import com.sun.jndi.ldap.pool.Connections
+import java.nio.channels.InterruptedByTimeoutException
 
 object BcpServer {
 
@@ -137,6 +138,10 @@ abstract class BcpServer {
       }
     }
     implicit def catcher: Catcher[Unit] = {
+      case e @ (_: IOException | _: InterruptedByTimeoutException) => {
+        logger.fine(e)
+        socket.close()
+      }
       case e: Exception => {
         logger.info(e)
         socket.close()

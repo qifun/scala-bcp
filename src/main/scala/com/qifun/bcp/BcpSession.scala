@@ -737,16 +737,18 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   private def resetHeartBeatTimer(connection: Connection)(implicit txn: InTxn) {
     if (!connection.isShutedDown()) {
       val stream = connection.stream()
-      val oldTimer = stream.heartBeatTimer()
-      Txn.afterCommit(_ => oldTimer.cancel(false))
-      val newTimer =
-        internalExecutor.scheduleWithFixedDelay(
-          stream,
-          HeartBeatDelay.length,
-          HeartBeatDelay.length,
-          HeartBeatDelay.unit)
-      Txn.afterRollback(_ => newTimer.cancel(false))
-      stream.heartBeatTimer() = newTimer
+      if (stream != null) {
+        val oldTimer = stream.heartBeatTimer()
+        Txn.afterCommit(_ => oldTimer.cancel(false))
+        val newTimer =
+          internalExecutor.scheduleWithFixedDelay(
+            stream,
+            HeartBeatDelay.length,
+            HeartBeatDelay.length,
+            HeartBeatDelay.unit)
+        Txn.afterRollback(_ => newTimer.cancel(false))
+        stream.heartBeatTimer() = newTimer
+      }
     }
   }
 
