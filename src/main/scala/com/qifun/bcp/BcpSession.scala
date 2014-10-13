@@ -769,7 +769,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     tryAfterCommit(_ => interrupted())
   }
 
-  final def interrupt() {
+  final def interrupt(): Unit = {
     atomic { implicit txn: InTxn =>
       internalInterrupt()
     }
