@@ -277,7 +277,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     sendingQueue() match {
       case Right(sendingConnectionQueue) =>
         sendingConnectionQueue find { _._2.contains(connection) } match {
-          case Some((time, openConnections)) if openConnections.size == 1 => // 在发送队列中，connection所对应的优先级时间只有一条连接
+          case Some((time, openConnections)) if openConnections.size == 1 =>
+            // 在发送队列中，connection所对应的优先级时间只有一条连接
             val newSendingConnctionQueue = sendingConnectionQueue - time
             if (newSendingConnctionQueue.isEmpty) { // 移除connection后，发送队列为空
               sendingQueue() = Left(PacketQueue())
@@ -420,6 +421,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     buffer: Seq[ByteBuffer])(
       implicit txn: InTxn) {
     val idSet = connection.receiveIdSet()
+    logger.fine(this + " received id: " + packId + " received id set: " + idSet)
     if (idSet.isReceived(packId)) {
       // 已经收过了，直接忽略。
     } else {
@@ -492,6 +494,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
     connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
       case (packId, Data(buffers)) => {
+        logger.fine(this + "connectionId: " + connectionId + "numAcknowledgeReceivedForData: " +
+          connection.numAcknowledgeReceivedForData() + " packId: " + packId)
         enqueue(RetransmissionData(connectionId, packId, buffers))
         packId + 1
       }
@@ -526,12 +530,16 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             resetHeartBeatTimer(connection)
             val packId = connection.numDataReceived()
             connection.numDataReceived() = packId + 1
+            logger.fine(this + " num data received: " + connection.numDataReceived() + " connectionId: " + connectionId)
             dataReceived(connectionId, connection, packId, buffer)
           }
           startReceive(connectionId, connection, stream)
           stream.flush()
         }
         case RetransmissionData(dataConnectionId, packId, data) => {
+          logger.fine(this +
+            " retrasmission data id: " + packId + " dataConnectionId: " +
+            dataConnectionId + " connectionId: " + connectionId)
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(connection)
@@ -598,6 +606,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             originalPack match {
               case Data(buffer) => {
                 connection.numAcknowledgeReceivedForData() += 1
+                logger.fine(this + "numAcknowledgeReceivedForData: " + connection.numAcknowledgeReceivedForData() +
+                  " connectionId: " + connectionId)
               }
               case RetransmissionData(_, _, _) | Finish | RetransmissionFinish(_, _) => {
                 // 简单移出重传队列即可，不用任何额外操作
@@ -625,6 +635,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
             resetHeartBeatTimer(connection)
             connections.get(finishConnectionId) match {
               case Some(finishConnection) => {
+                val stream = finishConnection.stream()
+                Txn.afterCommit { _ =>
+                  if (stream != null) {
+                    stream.shutDown()
+                  }
+                }
                 retransmissionFinishReceived(finishConnectionId, finishConnection, packId)
                 cleanUp(finishConnectionId, finishConnection)
               }
@@ -670,6 +686,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         // 由于关闭连接而触发异常
         logger.fine(e)
         atomic { implicit txn =>
+          val stream = connection.stream()
+          Txn.afterCommit { _ =>
+            if (stream != null) {
+              stream.interrupt()
+            }
+          }
           cleanUp(connectionId, connection)
         }
       }
@@ -678,6 +700,12 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         logger.warning(e)
         stream.interrupt()
         atomic { implicit txn =>
+          val stream = connection.stream()
+          Txn.afterCommit { _ =>
+            if (stream != null) {
+              stream.interrupt()
+            }
+          }
           cleanUp(connectionId, connection)
         }
       }
