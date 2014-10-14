@@ -116,7 +116,6 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
   override private[bcp] final def internalExecutor: ScheduledExecutorService = executor
 
   override private[bcp] final def release()(implicit txn: InTxn) {
-    assert(!isShutedDown())
     isShutedDown() = true
     val oldReconnectPromise = reconnectPromise()
     reconnectPromise() = null;
@@ -139,7 +138,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
       }
     }
   }
-
+  
   override private[bcp] final def busy(busyConnection: BcpClient.Connection)(implicit txn: InTxn): Unit = {
     logger.finest("the connection is busy!")
     busyConnection.stream().connectionState() = ConnectionBusy
