@@ -397,6 +397,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         connection.finishIdReceived().exists(connection.receiveIdSet().allReceivedBelow) &&
         connection.unconfirmedPackets().isEmpty
     if (isConnectionFinish) { // 所有外出数据都已经发送并确认，所有外来数据都已经收到并确认
+      logger.fine(this + " remove connections, connectionId: " + connectionId)
       val removedConnection = connections.remove(connectionId)
       assert(removedConnection == Some(connection))
     }
@@ -410,7 +411,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         buffer.duplicate().get(bytes)
         stringBuilder.append(new String(bytes, "UTF-8"))
       }
-      this + stringBuilder.result
+      this + " " + stringBuilder.result
     }
   }
 
@@ -421,13 +422,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     buffer: Seq[ByteBuffer])(
       implicit txn: InTxn) {
     val idSet = connection.receiveIdSet()
-    logger.fine(this + " received id: " + packId + " received id set: " + idSet)
+    logger.fine(this + " connectionId: " + connectionId + " received id: " + packId + " received id set: " + idSet)
     if (idSet.isReceived(packId)) {
       // 已经收过了，直接忽略。
     } else {
       printBuffer(buffer)
       tryAfterCommit(_ => received(buffer: _*))
       connection.receiveIdSet() = idSet + packId
+      logger.fine(this + " connectionId: " + connectionId +
+        " after add packId, receiveIdSet: " + connection.receiveIdSet())
       checkConnectionFinish(connectionId, connection)
     }
   }
@@ -462,7 +465,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     connectionId: Int,
     connection: Connection,
     packId: Int)(implicit txn: InTxn) {
-    connection.numDataReceived() = packId + 1
+    logger.fine(this + " retransmissionFinishReceived, packId: " + packId +
+      " numDataReceived: " + connection.numDataReceived())
     connection.finishIdReceived() match {
       case None => {
         connection.finishIdReceived() = Some(packId)
@@ -494,7 +498,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
     connection.unconfirmedPackets().foldLeft(connection.numAcknowledgeReceivedForData()) {
       case (packId, Data(buffers)) => {
-        logger.fine(this + "connectionId: " + connectionId + "numAcknowledgeReceivedForData: " +
+        logger.fine(this + " connectionId: " + connectionId + " numAcknowledgeReceivedForData: " +
           connection.numAcknowledgeReceivedForData() + " packId: " + packId)
         enqueue(RetransmissionData(connectionId, packId, buffers))
         packId + 1
@@ -520,17 +524,17 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     val receiveFuture = Future {
       BcpIo.receive(stream).await match {
         case HeartBeat => {
-          logger.finest("received heart beat")
+          logger.finest("Received heart beat")
           startReceive(connectionId, connection, stream)
         }
         case Data(buffer) => {
-          logger.fine("received data, connectionId： " + connectionId + ", connections: " + connections)
+          logger.fine("Received data, connectionId： " + connectionId + ", connections: " + connections)
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(connection)
             val packId = connection.numDataReceived()
             connection.numDataReceived() = packId + 1
-            logger.fine(this + " num data received: " + connection.numDataReceived() + " connectionId: " + connectionId)
+            logger.fine(this + " connectionId: " + connectionId + " num data received: " + connection.numDataReceived())
             dataReceived(connectionId, connection, packId, buffer)
           }
           startReceive(connectionId, connection, stream)
@@ -538,16 +542,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
         }
         case RetransmissionData(dataConnectionId, packId, data) => {
           logger.fine(this +
-            " retrasmission data id: " + packId + " dataConnectionId: " +
+            " retransmission pack id: " + packId + " dataConnectionId: " +
             dataConnectionId + " connectionId: " + connectionId)
           BcpIo.enqueue(stream, Acknowledge)
           atomic { implicit txn =>
             resetHeartBeatTimer(connection)
             connections.get(dataConnectionId) match {
               case Some(dataConnection) => {
-                logger.fine(
-                  "receive retransmission data, dataConnectionId: " + dataConnectionId +
-                    ", connections: " + connections)
+                logger.fine(this + " receive retransmission data, dataConnectionId: " + dataConnectionId +
+                  ", connections: " + connections)
                 dataReceived(dataConnectionId, dataConnection, packId, data)
               }
               case None => {
@@ -555,6 +558,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                 if (dataConnectionId - oldLastConnectionId + connections.size >= MaxConnectionsPerSession) {
                   internalInterrupt()
                 } else {
+                  logger.fine(this + " receive data before handshake.")
                   if (oldLastConnectionId < dataConnectionId) {
                     // 在成功建立连接以前先收到重传的数据，这表示原连接在BCP握手阶段卡住了
                     this.lastConnectionId() = dataConnectionId
@@ -564,7 +568,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
                     }
                     dataReceived(dataConnectionId, connections.last._2, packId, data)
                   } else {
-                    logger.fine("received data ignore, connectionId: " + connectionId + ", connections: " + connections)
+                    logger.fine("Received data ignore, connectionId: " + connectionId + ", connections: " + connections)
                     // 原连接先前已经接收过所有数据并关闭了，可以安全忽略数据
                   }
                 }
