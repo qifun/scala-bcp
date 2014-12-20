@@ -270,7 +270,7 @@ abstract class BcpClient(sessionId: Array[Byte]) extends BcpSession[BcpClient.St
     }
   }
 
-  def idleComplete(thisTimer: CancellablePromise[Unit]): Unit = {
+  private def idleComplete(thisTimer: CancellablePromise[Unit]): Unit = {
     atomic { implicit txn =>
       if (idlePromise() == thisTimer) {
         connections.find(connection =>

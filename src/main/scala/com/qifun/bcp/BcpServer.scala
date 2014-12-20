@@ -111,7 +111,7 @@ abstract class BcpServer {
 
   protected def newSession(sessionId: Array[Byte]): Session
 
-  protected final def addIncomingSocket(socket: AsynchronousSocketChannel) {
+  private final def addIncomingSocket(socket: AsynchronousSocketChannel) {
     logger.fine(fast"bcp server add incoming socket: ${socket}")
     val stream = new BcpServer.Stream(socket)
     val acceptFuture = Future {
