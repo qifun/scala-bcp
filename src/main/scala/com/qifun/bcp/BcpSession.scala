@@ -41,7 +41,7 @@ import scala.util.control.Exception
 import java.io.EOFException
 import java.io.IOException
 import java.nio.channels.InterruptedByTimeoutException
-import BcpXor._
+
 private[bcp] object BcpSession {
 
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
@@ -180,7 +180,7 @@ private[bcp] object BcpSession {
 
 }
 
-trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.Connection[Stream]] {
+trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.Connection[Stream]] extends DataOperation{
 
   import BcpSession.SendingConnectionQueue
   import BcpSession.PacketQueue
@@ -426,13 +426,16 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       // 已经收过了，直接忽略。
     } else {
       printBuffer(buffer)
-      val subPassBuffer = subPasswd(buffer: _*)
-      tryAfterCommit(_ => received(subPassBuffer: _*))
+      tryAfterCommit(_ => received(dataDecryptOperation(buffer: _*): _*))
       connection.receiveIdSet() = idSet + packId
       logger.fine(this + " connectionId: " + connectionId +
         " after add packId, receiveIdSet: " + connection.receiveIdSet())
       checkConnectionFinish(connectionId, connection)
     }
+  }
+
+  def dataDecryptOperation(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+    buffer
   }
 
   private def checkShutDown()(implicit txn: InTxn) {
@@ -790,12 +793,15 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   final def send(buffer: ByteBuffer*): Unit = {
     printBuffer(buffer.toList)
-    val passwdBuffer = addPasswd(buffer: _*)
     atomic { implicit txn =>
-      enqueue(Data(passwdBuffer))
+      enqueue(Data(dataEncryptOperation(buffer: _*)))
     }
   }
-
+  
+  def dataEncryptOperation(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+    buffer
+  }
+  
   /** 当有数据发出时触发本事件 */
   private[bcp] def busy(connection: Connection)(implicit txn: InTxn): Unit
 

@@ -42,7 +42,7 @@ import java.io.IOException
 import scala.concurrent.stm.Ref
 import scala.concurrent.stm._
 import java.util.concurrent.TimeUnit
-import BcpXor._;
+
 
 object BcpTest {
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
@@ -102,7 +102,7 @@ class BcpTest {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
-    
+
     trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
@@ -113,12 +113,12 @@ class BcpTest {
         lock.synchronized {
           val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
           pack.head.get(bytes)
-          serverResult = Some(Success(new String((bytes), "UTF-8")))
-          send(ByteBuffer.wrap(("pong".getBytes("UTF-8"))))
+          serverResult = Some(Success(new String(bytes, "UTF-8")))
+          send(ByteBuffer.wrap("pong".getBytes("UTF-8")))
           lock.notify()
         }
       }
-      
+
       override final def interrupted(): Unit = {}
 
       override final def shutedDown(): Unit = {}
@@ -138,7 +138,7 @@ class BcpTest {
       }
     }
 
-    val client = new BcpClient{
+    val client = new BcpClient {
 
       override final def available(): Unit = {}
 
@@ -158,7 +158,7 @@ class BcpTest {
         lock.synchronized {
           val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
           pack.head.get(bytes)
-          clientResult = Some(Success(new String((bytes), "UTF-8")))
+          clientResult = Some(Success(new String(bytes, "UTF-8")))
           lock.notify()
         }
       }
@@ -172,8 +172,8 @@ class BcpTest {
     }
 
     client.start()
-  
-    client.send(ByteBuffer.wrap(("ping".getBytes("UTF-8"))))
+
+    client.send(ByteBuffer.wrap("ping".getBytes("UTF-8")))
 
     lock.synchronized {
       while (serverResult == None || clientResult == None) {
@@ -183,7 +183,7 @@ class BcpTest {
 
     val Some(serverSome) = serverResult
     val Some(clientSome) = clientResult
-    
+
     serverSome match {
       case Success(u) => assertEquals(u, "ping")
       case Failure(e) => throw e
@@ -197,14 +197,13 @@ class BcpTest {
     client.shutDown()
     server.clear()
   }
-  
 
   @Test
   def shutDownTest {
     val lock = new AnyRef
     @volatile var shutedDownResult: Option[Try[Boolean]] = None
 
-   trait ServerSession { _: BcpServer#Session =>
+    trait ServerSession { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -462,7 +461,7 @@ class BcpTest {
       }
 
     }
-    
+
     client.start()
 
     // 等待连接成功
@@ -566,7 +565,7 @@ class BcpTest {
       }
 
     }
-    
+
     client.start()
 
     lock.synchronized {
@@ -597,13 +596,13 @@ class BcpTest {
 
       override final def received(pack: ByteBuffer*): Unit = {
         lock.synchronized {
-	  serverResult match {
+          serverResult match {
             case Some(s) => {
               val Success(oldNum) = s
               serverResult = Some(Success(oldNum + 1))
-	    }
+            }
             case None =>
-	  }
+          }
           send(ByteBuffer.wrap(("""{
             "response": {
               """" + (serverResult.get.get - 1) + """"": {
@@ -668,7 +667,7 @@ class BcpTest {
       override final def unavailable(): Unit = {}
 
     }
-    
+
     client.start()
 
     var sendNum = 0;
@@ -709,14 +708,14 @@ class BcpTest {
     client.shutDown()
     server.clear()
   }
-  
+
   @Test
-  def passwdNo(): Unit = {
+  def pingPongWithCrypto(): Unit = {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
-    noPasswd()
-    trait ServerSession { _: BcpServer#Session =>
+
+    trait ServerSession extends Crypto { _: BcpServer#Session =>
 
       override final def available(): Unit = {}
 
@@ -726,12 +725,12 @@ class BcpTest {
         lock.synchronized {
           val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
           pack.head.get(bytes)
-          serverResult = Some(Success(new String((bytes), "UTF-8")))
-          send(ByteBuffer.wrap(("I don't have Passwd!".getBytes("UTF-8"))))
+          serverResult = Some(Success(new String(bytes, "UTF-8")))
+          send(ByteBuffer.wrap("Decrypt".getBytes("UTF-8")))
           lock.notify()
         }
       }
-      
+
       override final def interrupted(): Unit = {}
 
       override final def shutedDown(): Unit = {}
@@ -751,7 +750,7 @@ class BcpTest {
       }
     }
 
-    val client = new BcpClient{
+    val client = new BcpClient with Crypto {
 
       override final def available(): Unit = {}
 
@@ -771,7 +770,7 @@ class BcpTest {
         lock.synchronized {
           val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
           pack.head.get(bytes)
-          clientResult = Some(Success(new String((bytes), "UTF-8")))
+          clientResult = Some(Success(new String(bytes, "UTF-8")))
           lock.notify()
         }
       }
@@ -785,8 +784,8 @@ class BcpTest {
     }
 
     client.start()
-  
-    client.send(ByteBuffer.wrap(("Do you have passwd?".getBytes("UTF-8"))))
+
+    client.send(ByteBuffer.wrap("Encrypt".getBytes("UTF-8")))
 
     lock.synchronized {
       while (serverResult == None || clientResult == None) {
@@ -796,121 +795,20 @@ class BcpTest {
 
     val Some(serverSome) = serverResult
     val Some(clientSome) = clientResult
-    
+
     serverSome match {
-      case Success(u) => assertEquals(u, "Do you have passwd?")
+      case Success(u) => assertEquals(u, "Encrypt")
       case Failure(e) => throw e
     }
 
     clientSome match {
-      case Success(u) => assertEquals(u, "I don't have Passwd!")
+      case Success(u) => assertEquals(u, "Decrypt")
       case Failure(e) => throw e
     }
 
     client.shutDown()
     server.clear()
   }
-  @Test
-  def passwdNumber(): Unit = {
-    val lock = new AnyRef
-    @volatile var serverResult: Option[Try[String]] = None
-    @volatile var clientResult: Option[Try[String]] = None
-    setPasswd(100)
-    trait ServerSession { _: BcpServer#Session =>
-
-      override final def available(): Unit = {}
-
-      override final def accepted(): Unit = {}
-
-      override final def received(pack: ByteBuffer*): Unit = {
-        lock.synchronized {
-          val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
-          pack.head.get(bytes)
-          serverResult = Some(Success(new String((bytes), "UTF-8")))
-          send(ByteBuffer.wrap(("I have Passwd, key = " + getPasswd() + "!").getBytes("UTF-8")))
-          lock.notify()
-        }
-      }
-      
-      override final def interrupted(): Unit = {}
-
-      override final def shutedDown(): Unit = {}
-
-      override final def unavailable(): Unit = {}
-
-    }
-
-    val server = new TestServer {
-      override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
-
-      override protected final def acceptFailed(throwable: Throwable): Unit = {
-        lock.synchronized {
-          serverResult = Some(Failure(throwable))
-          lock.notify()
-        }
-      }
-    }
-
-    val client = new BcpClient{
-
-      override final def available(): Unit = {}
-
-      override final def connect(): Future[AsynchronousSocketChannel] = Future[AsynchronousSocketChannel] {
-        val socket = AsynchronousSocketChannel.open(server.channelGroup)
-        Nio2Future.connect(
-          socket,
-          new InetSocketAddress(
-            "localhost",
-            server.serverSocket.getLocalAddress.asInstanceOf[InetSocketAddress].getPort)).await
-        socket
-      }
-
-      override final def executor = new ScheduledThreadPoolExecutor(2)
-
-      override final def received(pack: ByteBuffer*): Unit = {
-        lock.synchronized {
-          val bytes: Array[Byte] = new Array[Byte](pack.head.remaining())
-          pack.head.get(bytes)
-          clientResult = Some(Success(new String((bytes), "UTF-8")))
-          lock.notify()
-        }
-      }
-
-      override final def interrupted(): Unit = {}
-
-      override final def shutedDown(): Unit = {}
-
-      override final def unavailable(): Unit = {}
-
-    }
-
-    client.start()
-  
-    client.send(ByteBuffer.wrap(("Do you have passwd?".getBytes("UTF-8"))))
-
-    lock.synchronized {
-      while (serverResult == None || clientResult == None) {
-        lock.wait()
-      }
-    }
-
-    val Some(serverSome) = serverResult
-    val Some(clientSome) = clientResult
-    
-    serverSome match {
-      case Success(u) => assertEquals(u, "Do you have passwd?")
-      case Failure(e) => throw e
-    }
-
-    clientSome match {
-      case Success(u) => assertEquals(u, "I have Passwd, key = 100!")
-      case Failure(e) => throw e
-    }
-
-    client.shutDown()
-    server.clear()
-  }
-
 }
 
 // just for test
