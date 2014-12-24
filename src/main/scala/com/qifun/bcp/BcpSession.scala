@@ -41,7 +41,7 @@ import scala.util.control.Exception
 import java.io.EOFException
 import java.io.IOException
 import java.nio.channels.InterruptedByTimeoutException
-
+import BcpXor._
 private[bcp] object BcpSession {
 
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
@@ -108,7 +108,6 @@ private[bcp] object BcpSession {
     final def allReceivedBelow(id: Int): Boolean = {
       ids.isEmpty && lowId == id && highId == id
     }
-
   }
 
   private type HeartBeatRunnable = Runnable
@@ -405,7 +404,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   private def printBuffer(buffers: Seq[ByteBuffer]) {
     logger.fine {
-      var stringBuilder = new StringBuilder
+      val stringBuilder = new StringBuilder
       buffers foreach { buffer =>
         val bytes: Array[Byte] = new Array[Byte](buffer.remaining)
         buffer.duplicate().get(bytes)
@@ -427,7 +426,8 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       // 已经收过了，直接忽略。
     } else {
       printBuffer(buffer)
-      tryAfterCommit(_ => received(buffer: _*))
+      val subPassBuffer = subPasswd(buffer: _*)
+      tryAfterCommit(_ => received(subPassBuffer: _*))
       connection.receiveIdSet() = idSet + packId
       logger.fine(this + " connectionId: " + connectionId +
         " after add packId, receiveIdSet: " + connection.receiveIdSet())
@@ -790,8 +790,9 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
 
   final def send(buffer: ByteBuffer*): Unit = {
     printBuffer(buffer.toList)
+    val passwdBuffer = addPasswd(buffer: _*)
     atomic { implicit txn =>
-      enqueue(Data(buffer))
+      enqueue(Data(passwdBuffer))
     }
   }
 
