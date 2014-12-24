@@ -180,7 +180,7 @@ private[bcp] object BcpSession {
 
 }
 
-trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.Connection[Stream]] extends DataOperation{
+trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.Connection[Stream]] extends BcpCrypto {
 
   import BcpSession.SendingConnectionQueue
   import BcpSession.PacketQueue
@@ -426,7 +426,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
       // 已经收过了，直接忽略。
     } else {
       printBuffer(buffer)
-      tryAfterCommit(_ => received(dataDecryptOperation(buffer: _*): _*))
+      tryAfterCommit(_ => received(dataDecrypt(buffer: _*): _*))
       connection.receiveIdSet() = idSet + packId
       logger.fine(this + " connectionId: " + connectionId +
         " after add packId, receiveIdSet: " + connection.receiveIdSet())
@@ -434,7 +434,7 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
     }
   }
 
-  def dataDecryptOperation(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+  def dataDecrypt(buffer: ByteBuffer*): Seq[ByteBuffer] = {
     buffer
   }
 
@@ -794,14 +794,14 @@ trait BcpSession[Stream >: Null <: BcpSession.Stream, Connection <: BcpSession.C
   final def send(buffer: ByteBuffer*): Unit = {
     printBuffer(buffer.toList)
     atomic { implicit txn =>
-      enqueue(Data(dataEncryptOperation(buffer: _*)))
+      enqueue(Data(dataEncrypt(buffer: _*)))
     }
   }
-  
-  def dataEncryptOperation(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+
+  def dataEncrypt(buffer: ByteBuffer*): Seq[ByteBuffer] = {
     buffer
   }
-  
+
   /** 当有数据发出时触发本事件 */
   private[bcp] def busy(connection: Connection)(implicit txn: InTxn): Unit
 

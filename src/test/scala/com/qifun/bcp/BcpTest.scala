@@ -43,7 +43,6 @@ import scala.concurrent.stm.Ref
 import scala.concurrent.stm._
 import java.util.concurrent.TimeUnit
 
-
 object BcpTest {
   private implicit val (logger, formatter, appender) = ZeroLoggerFactory.newLogger(this)
 }
@@ -710,12 +709,14 @@ class BcpTest {
   }
 
   @Test
-  def pingPongWithCrypto(): Unit = {
+  def pingPongWithBcpXor(): Unit = {
     val lock = new AnyRef
     @volatile var serverResult: Option[Try[String]] = None
     @volatile var clientResult: Option[Try[String]] = None
 
-    trait ServerSession extends Crypto { _: BcpServer#Session =>
+    trait ServerSession extends BcpXor { _: BcpServer#Session =>
+
+      override final val key = 100.toByte
 
       override final def available(): Unit = {}
 
@@ -740,6 +741,7 @@ class BcpTest {
     }
 
     val server = new TestServer {
+
       override protected final def newSession(id: Array[Byte]) = new Session(id) with ServerSession
 
       override protected final def acceptFailed(throwable: Throwable): Unit = {
@@ -750,7 +752,9 @@ class BcpTest {
       }
     }
 
-    val client = new BcpClient with Crypto {
+    val client = new BcpClient with BcpXor {
+
+      override final val key = 100.toByte
 
       override final def available(): Unit = {}
 

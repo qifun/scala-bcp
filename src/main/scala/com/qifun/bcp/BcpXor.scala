@@ -1,10 +1,19 @@
 package com.qifun.bcp
 import java.nio.ByteBuffer
 import scala.annotation.tailrec
-object BcpXor {
-  private var key = 178
 
-  final def encrypt(byte: ByteBuffer): ByteBuffer = {
+trait BcpXor extends BcpCrypto {
+  val key: Byte = 100
+
+  abstract override def dataDecrypt(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+    decrypt(buffer: _*)
+  }
+
+  abstract override def dataEncrypt(buffer: ByteBuffer*): Seq[ByteBuffer] = {
+    encrypt(buffer: _*)
+  }
+
+  private def encrypt(byte: ByteBuffer): ByteBuffer = {
     val byteCrypto = new Array[Byte](byte.remaining())
 
     @tailrec
@@ -18,7 +27,7 @@ object BcpXor {
     ByteBuffer.wrap(byteCrypto)
   }
 
-  final def decrypt(byte: ByteBuffer): ByteBuffer = {
+  private def decrypt(byte: ByteBuffer): ByteBuffer = {
     val byteCrypto = new Array[Byte](byte.remaining())
 
     @tailrec
@@ -32,7 +41,7 @@ object BcpXor {
     ByteBuffer.wrap(byteCrypto)
   }
 
-  final def encrypt(byte: ByteBuffer*): Seq[ByteBuffer] = {
+  private def encrypt(byte: ByteBuffer*): Seq[ByteBuffer] = {
     val byteCrypto = new Array[ByteBuffer](byte.length)
 
     @tailrec
@@ -46,7 +55,7 @@ object BcpXor {
     byteCrypto
   }
 
-  final def decrypt(byte: ByteBuffer*): Seq[ByteBuffer] = {
+  private def decrypt(byte: ByteBuffer*): Seq[ByteBuffer] = {
     val byteCrypto = new Array[ByteBuffer](byte.length)
 
     @tailrec
