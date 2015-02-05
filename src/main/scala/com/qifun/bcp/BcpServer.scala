@@ -78,7 +78,7 @@ abstract class BcpServer {
 
     override private[bcp] final def release()(implicit txn: InTxn) {
       val removedSessionOption = sessions.remove(sessionId)
-      assert(removedSessionOption == Some(Session.this))
+   //   assert(removedSessionOption == Some(Session.this))
     }
 
     override private[bcp] final def busy(connection: BcpServer.Connection)(implicit txn: InTxn): Unit = {
